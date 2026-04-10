@@ -1,7 +1,16 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import type { Student, Branch } from "@/lib/dataService";
+import { savePortalRow } from "@/lib/save";
+import type {
+  Account,
+  Branch,
+  MockExam,
+  MockScore,
+  PhysicalTest,
+  PhysicalRecord,
+  Student,
+} from "@/lib/dataService";
 import { StudentModal } from "@/components/StudentModal";
 import { StudentDetailPanel } from "@/components/StudentDetailPanel";
 
@@ -16,121 +25,245 @@ type SortType =
 
 type ModalMode = "add" | "edit";
 
-const CACHE_KEY_PREFIX = "student_cache_v30";
-const CACHE_TIME_KEY_PREFIX = "student_cache_time_v30";
-const CACHE_DURATION = 2000;
-const SCORE_CACHE_KEY = "student_scores_cache_v1";
-const PHYSICAL_CACHE_KEY = "student_physical_cache_v1";
+const SCORE_FIELD_KEYS = [
+  "korean_name",
+  "korean_raw",
+  "korean_std",
+  "korean_pct",
+  "korean_grade",
+  "math_name",
+  "math_raw",
+  "math_std",
+  "math_pct",
+  "math_grade",
+  "english_raw",
+  "english_grade",
+  "inquiry1_name",
+  "inquiry1_raw",
+  "inquiry1_std",
+  "inquiry1_pct",
+  "inquiry1_grade",
+  "inquiry2_name",
+  "inquiry2_raw",
+  "inquiry2_std",
+  "inquiry2_pct",
+  "inquiry2_grade",
+  "history_raw",
+  "history_grade",
+] as const;
 
-function getCacheKey(examId: string) {
-  return `${CACHE_KEY_PREFIX}_${examId || "all"}`;
-}
+const DEFAULT_PHYSICAL_TESTS: PhysicalTest[] = [
+  {
+    test_id: "physical-test-2026-01",
+    test_name: "실기측정 1차",
+    test_date: "2026-03-27",
+    status: "active",
+  },
+  {
+    test_id: "physical-test-2026-02",
+    test_name: "실기측정 2차",
+    test_date: "2026-08-21",
+    status: "active",
+  },
+];
 
-function getCacheTimeKey(examId: string) {
-  return `${CACHE_TIME_KEY_PREFIX}_${examId || "all"}`;
-}
+function normalizePhysicalTests(tests: PhysicalTest[]) {
+  const defaultsById = new Map(DEFAULT_PHYSICAL_TESTS.map((test) => [test.test_id, test]));
 
-// Helper to extract score fields from a student
-function getScoreFields(student: Student) {
-  return {
-    korean_name: student.korean_name,
-    korean_raw: student.korean_raw,
-    korean_std: student.korean_std,
-    korean_pct: student.korean_pct,
-    korean_grade: student.korean_grade,
-    math_name: student.math_name,
-    math_raw: student.math_raw,
-    math_std: student.math_std,
-    math_pct: student.math_pct,
-    math_grade: student.math_grade,
-    english_raw: student.english_raw,
-    english_grade: student.english_grade,
-    inquiry1_name: student.inquiry1_name,
-    inquiry1_raw: student.inquiry1_raw,
-    inquiry1_std: student.inquiry1_std,
-    inquiry1_pct: student.inquiry1_pct,
-    inquiry1_grade: student.inquiry1_grade,
-    inquiry2_name: student.inquiry2_name,
-    inquiry2_raw: student.inquiry2_raw,
-    inquiry2_std: student.inquiry2_std,
-    inquiry2_pct: student.inquiry2_pct,
-    inquiry2_grade: student.inquiry2_grade,
-    history_raw: student.history_raw,
-    history_grade: student.history_grade,
-  };
-}
+  return tests.map((test) => {
+    const fallback = defaultsById.get(s(test.test_id));
+    if (!fallback) {
+      return test;
+    }
 
-// Helper to extract physical test fields from a student
-function getPhysicalFields(student: Student) {
-  return {
-    back_strength: student.back_strength,
-    run_10m: student.run_10m,
-    medicine_ball: student.medicine_ball,
-    sit_reach: student.sit_reach,
-    standing_jump: student.standing_jump,
-    run_20m: student.run_20m,
-    physical_total_score: student.physical_total_score,
-    physical_memo: student.physical_memo,
-  };
-}
+    const nextName = s(test.test_name).trim();
+    const hasDate = !!s(test.test_date).trim();
+    const hasLegacyYearPrefix = /^\d{4}\b/.test(nextName);
 
-// Save score data to local cache
-function saveScoresToCache(student: Student) {
-  try {
-    const cache = JSON.parse(localStorage.getItem(SCORE_CACHE_KEY) || "{}") as Record<string, any>;
-    cache[s(student.student_id)] = getScoreFields(student);
-    localStorage.setItem(SCORE_CACHE_KEY, JSON.stringify(cache));
-  } catch {}
-}
+    if (hasDate && !hasLegacyYearPrefix) {
+      return test;
+    }
 
-// Save physical test data to local cache
-function savePhysicalToCache(student: Student) {
-  try {
-    const cache = JSON.parse(localStorage.getItem(PHYSICAL_CACHE_KEY) || "{}") as Record<string, any>;
-    cache[s(student.student_id)] = getPhysicalFields(student);
-    localStorage.setItem(PHYSICAL_CACHE_KEY, JSON.stringify(cache));
-  } catch {}
-}
-
-// Merge cached scores into student data
-function mergeScoresFromCache(students: Student[]): Student[] {
-  try {
-    const scoreCache = JSON.parse(localStorage.getItem(SCORE_CACHE_KEY) || "{}") as Record<string, any>;
-    const physicalCache = JSON.parse(localStorage.getItem(PHYSICAL_CACHE_KEY) || "{}") as Record<string, any>;
-    return students.map((st) => {
-      let merged = { ...st };
-      
-      // Merge academic scores
-      const scores = scoreCache[s(st.student_id)];
-      if (scores) {
-        Object.keys(scores).forEach((key) => {
-          const apiValue = merged[key as keyof Student];
-          if (apiValue === undefined || apiValue === null || apiValue === "") {
-            (merged as any)[key] = scores[key];
-          }
-        });
-      }
-      
-      // Merge physical records
-      const physical = physicalCache[s(st.student_id)];
-      if (physical) {
-        Object.keys(physical).forEach((key) => {
-          const apiValue = merged[key as keyof Student];
-          if (apiValue === undefined || apiValue === null || apiValue === "") {
-            (merged as any)[key] = physical[key];
-          }
-        });
-      }
-      
-      return merged;
-    });
-  } catch {
-    return students;
-  }
+    return {
+      ...test,
+      test_name: hasLegacyYearPrefix ? fallback.test_name : nextName || fallback.test_name,
+      test_date: hasDate ? test.test_date : fallback.test_date,
+    };
+  });
 }
 
 function s(value: unknown) {
   return String(value ?? "");
+}
+
+function normalizeCompareText(value: unknown) {
+  return s(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isTruthy(value: unknown) {
+  return /^(true|1|y|yes)$/i.test(s(value).trim());
+}
+
+function buildGeneratedId(prefix: string) {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getSortableDateValue(rawDate: unknown) {
+  const normalizedDate = s(rawDate).trim();
+  const dateMatch = normalizedDate.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+
+  if (!dateMatch) {
+    return -1;
+  }
+
+  return Number(`${dateMatch[1]}${dateMatch[2].padStart(2, "0")}${dateMatch[3].padStart(2, "0")}`);
+}
+
+function pickScoreFields(score?: MockScore | null): Partial<Student> {
+  if (!score) {
+    return {};
+  }
+
+  return {
+    korean_name: s(score.korean_name),
+    korean_raw: s(score.korean_raw),
+    korean_std: s(score.korean_std),
+    korean_pct: s(score.korean_pct),
+    korean_grade: s(score.korean_grade),
+    math_name: s(score.math_name),
+    math_raw: s(score.math_raw),
+    math_std: s(score.math_std),
+    math_pct: s(score.math_pct),
+    math_grade: s(score.math_grade),
+    english_raw: s(score.english_raw),
+    english_grade: s(score.english_grade),
+    inquiry1_name: s(score.inquiry1_name),
+    inquiry1_raw: s(score.inquiry1_raw),
+    inquiry1_std: s(score.inquiry1_std),
+    inquiry1_pct: s(score.inquiry1_pct),
+    inquiry1_grade: s(score.inquiry1_grade),
+    inquiry2_name: s(score.inquiry2_name),
+    inquiry2_raw: s(score.inquiry2_raw),
+    inquiry2_std: s(score.inquiry2_std),
+    inquiry2_pct: s(score.inquiry2_pct),
+    inquiry2_grade: s(score.inquiry2_grade),
+    history_raw: s(score.history_raw),
+    history_grade: s(score.history_grade),
+  };
+}
+
+function buildStudentSheetRow(student: Student, existingStudent?: Student | null) {
+  const now = new Date().toISOString();
+
+  return {
+    ...existingStudent,
+    student_id: s(student.student_id).trim() || s(existingStudent?.student_id).trim() || buildGeneratedId("student"),
+    student_no: s(student.student_no).trim(),
+    name: s(student.name).trim(),
+    gender: s(student.gender).trim(),
+    birth_date: s(student.birth_date).trim(),
+    school_name: s(student.school_name).trim(),
+    grade: s(student.grade).trim(),
+    class_name: s(student.class_name).trim(),
+    phone: s(student.phone).trim(),
+    parent_phone: s(student.parent_phone).trim(),
+    branch_id: s(student.branch_id).trim(),
+    admission_year: s(student.admission_year).trim(),
+    status: s(student.status).trim() || "active",
+    memo: s(student.memo).trim(),
+    exam_id: s(student.exam_id).trim(),
+    created_at: s(existingStudent?.created_at).trim() || now,
+    updated_at: now,
+  };
+}
+
+function mergeStudentsWithSheetData({
+  students,
+  mockExams,
+  mockScores,
+  physicalTests,
+  physicalRecords,
+}: {
+  students: Student[];
+  mockExams: MockExam[];
+  mockScores: MockScore[];
+  physicalTests: PhysicalTest[];
+  physicalRecords: PhysicalRecord[];
+}) {
+  const scoreDateByExamId = new Map(mockExams.map((exam) => [s(exam.exam_id), getSortableDateValue(exam.exam_date)]));
+  const physicalDateByTestId = new Map(physicalTests.map((test) => [s(test.test_id), getSortableDateValue(test.test_date)]));
+  const scoresByStudentId = new Map<string, MockScore[]>();
+  const physicalByStudentId = new Map<string, PhysicalRecord[]>();
+
+  mockScores.forEach((score) => {
+    const studentId = s(score.student_id).trim();
+    if (!studentId) {
+      return;
+    }
+    const nextScores = scoresByStudentId.get(studentId) || [];
+    nextScores.push(score);
+    scoresByStudentId.set(studentId, nextScores);
+  });
+
+  physicalRecords.forEach((record) => {
+    const studentId = s(record.student_id).trim();
+    if (!studentId) {
+      return;
+    }
+    const nextRecords = physicalByStudentId.get(studentId) || [];
+    nextRecords.push(record);
+    physicalByStudentId.set(studentId, nextRecords);
+  });
+
+  return students.map((student) => {
+    const studentId = s(student.student_id).trim();
+    const studentScores = [...(scoresByStudentId.get(studentId) || [])].sort((left, right) => {
+      const dateDiff = (scoreDateByExamId.get(s(right.exam_id)) || -1) - (scoreDateByExamId.get(s(left.exam_id)) || -1);
+      if (dateDiff !== 0) {
+        return dateDiff;
+      }
+      return s(right.updated_at).localeCompare(s(left.updated_at));
+    });
+    const examScores = studentScores.reduce<Record<string, Partial<Student>>>((accumulator, score) => {
+      const examId = s(score.exam_id).trim();
+      if (examId) {
+        accumulator[examId] = pickScoreFields(score);
+      }
+      return accumulator;
+    }, {});
+    const currentExamId = s(student.exam_id).trim() || s(studentScores[0]?.exam_id).trim();
+    const primaryScore = studentScores.find((score) => s(score.exam_id).trim() === currentExamId) || studentScores[0] || null;
+
+    const studentPhysicalRecords = [...(physicalByStudentId.get(studentId) || [])].sort((left, right) => {
+      const dateDiff = (physicalDateByTestId.get(s(right.test_id)) || -1) - (physicalDateByTestId.get(s(left.test_id)) || -1);
+      if (dateDiff !== 0) {
+        return dateDiff;
+      }
+      return s(right.updated_at).localeCompare(s(left.updated_at));
+    });
+    const latestPhysicalRecord = studentPhysicalRecords[0];
+
+    const mergedStudent: Student = {
+      ...student,
+      exam_id: currentExamId,
+      ...pickScoreFields(primaryScore),
+      back_strength: s(latestPhysicalRecord?.back_strength_value || student.back_strength),
+      run_10m: s(latestPhysicalRecord?.run_10m_value || student.run_10m),
+      medicine_ball: s(latestPhysicalRecord?.medicine_ball_value || student.medicine_ball),
+      sit_reach: s(latestPhysicalRecord?.sit_reach_value || student.sit_reach),
+      standing_jump: s(latestPhysicalRecord?.standing_jump_value || student.standing_jump),
+      run_20m: s(latestPhysicalRecord?.run_20m_value || student.run_20m),
+      physical_total_score: s(latestPhysicalRecord?.total_score || student.physical_total_score),
+      physical_memo: s(latestPhysicalRecord?.memo || student.physical_memo),
+    };
+
+    (mergedStudent as any).exam_scores = examScores;
+    return mergedStudent;
+  });
 }
 
 function getScoreNumber(value: string | number | undefined) {
@@ -192,8 +325,13 @@ function csvEscape(value: unknown) {
 }
 
 export default function Home() {
-  const [students, setStudents] = useState<Student[]>([]);
+  const [rawStudents, setRawStudents] = useState<Student[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [mockExams, setMockExams] = useState<MockExam[]>([]);
+  const [mockScores, setMockScores] = useState<MockScore[]>([]);
+  const [physicalTests, setPhysicalTests] = useState<PhysicalTest[]>(DEFAULT_PHYSICAL_TESTS);
+  const [physicalRecords, setPhysicalRecords] = useState<PhysicalRecord[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState("ALL");
@@ -205,106 +343,93 @@ export default function Home() {
   const [isDetailPopupOpen, setIsDetailPopupOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>("add");
   const [saving, setSaving] = useState(false);
+  const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
+  const [loginId, setLoginId] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput), 200);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  const students = useMemo(
+    () =>
+      mergeStudentsWithSheetData({
+        students: rawStudents,
+        mockExams,
+        mockScores,
+        physicalTests,
+        physicalRecords,
+      }),
+    [mockExams, mockScores, physicalRecords, physicalTests, rawStudents]
+  );
+
   const getBranchLabel = (branchId: string | undefined) => {
     const found = branches.find((b) => s(b.branch_id) === s(branchId));
     return found ? s(found.branch_name) : branchId || "-";
   };
 
-  const clearStudentCache = () => {
-    try {
-      Object.keys(localStorage).forEach((key) => {
-        if (key.startsWith(CACHE_KEY_PREFIX) || key.startsWith(CACHE_TIME_KEY_PREFIX)) {
-          localStorage.removeItem(key);
-        }
-      });
-    } catch {}
-  };
-
-  const loadBranches = async () => {
-    try {
-      const res = await fetch(`/api/branches?_ts=${Date.now()}`, {
-        method: "GET",
-        cache: "no-store",
-      });
-      const result = await safeJson(res);
-      if (!res.ok || !result.ok) {
-        setBranches([]);
-        return;
-      }
-      setBranches(Array.isArray(result.branches) ? result.branches : []);
-    } catch {
-      setBranches([]);
-    }
-  };
-
-  const loadStudents = async (force = false, focusStudentId?: string) => {
+  const loadPortalData = async (focusStudentId?: string) => {
     setLoading(true);
 
-    const cacheKey = getCacheKey("");
-    const cacheTimeKey = getCacheTimeKey("");
-
-    if (!force) {
-      try {
-        const cachedData = localStorage.getItem(cacheKey);
-        const cachedTime = localStorage.getItem(cacheTimeKey);
-        if (cachedData && cachedTime && Date.now() - Number(cachedTime) < CACHE_DURATION) {
-          const parsed = JSON.parse(cachedData) as Student[];
-          const withScores = mergeScoresFromCache(parsed);
-          setStudents(withScores);
-          setSelectedStudentId((prev) => {
-            if (focusStudentId && withScores.some((st) => s(st.student_id) === s(focusStudentId))) return focusStudentId;
-            if (prev && withScores.some((st) => s(st.student_id) === s(prev))) return prev;
-            return withScores[0]?.student_id ? s(withScores[0].student_id) : null;
-          });
-          setLoading(false);
-          return;
-        }
-      } catch {}
-    }
-
     try {
-      const res = await fetch(`/api/students?_ts=${Date.now()}`, {
+      const res = await fetch(`/api/portal-data?_ts=${Date.now()}`, {
         method: "GET",
         cache: "no-store",
       });
       const result = await safeJson(res);
-      const studentData = Array.isArray(result.students)
-        ? result.students
-        : Array.isArray(result.data)
-        ? result.data
-        : result.data && Array.isArray(result.data.students)
-        ? result.data.students
-        : [];
 
-      if (!res.ok || (result.ok === false && studentData.length === 0)) {
-        setStudents([]);
+      if (!res.ok || result.success === false) {
+        setRawStudents([]);
+        setBranches([]);
+        setAccounts([]);
+        setMockExams([]);
+        setMockScores([]);
+        setPhysicalTests(DEFAULT_PHYSICAL_TESTS);
+        setPhysicalRecords([]);
         setSelectedStudentId(null);
         return;
       }
 
-      let data = studentData;
-      // Merge scores from cache into API data
-      data = mergeScoresFromCache(data);
-      
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify(data));
-        localStorage.setItem(cacheTimeKey, String(Date.now()));
-      } catch {}
+      const nextBranches = Array.isArray(result.branches) ? (result.branches as Branch[]) : [];
+      const nextAccounts = Array.isArray(result.accounts) ? (result.accounts as Account[]) : [];
+      const nextStudents = Array.isArray(result.students) ? (result.students as Student[]) : [];
+      const nextMockExams = Array.isArray(result.mockExams) ? (result.mockExams as MockExam[]) : [];
+      const nextMockScores = Array.isArray(result.mockScores) ? (result.mockScores as MockScore[]) : [];
+      const nextPhysicalTests = normalizePhysicalTests(
+        Array.isArray(result.physicalTests) && result.physicalTests.length > 0
+          ? (result.physicalTests as PhysicalTest[])
+          : DEFAULT_PHYSICAL_TESTS
+      );
+      const nextPhysicalRecords = Array.isArray(result.physicalRecords)
+        ? (result.physicalRecords as PhysicalRecord[])
+        : [];
 
-      setStudents(data);
+      setBranches(nextBranches);
+      setAccounts(nextAccounts);
+      setRawStudents(nextStudents);
+      setMockExams(nextMockExams);
+      setMockScores(nextMockScores);
+      setPhysicalTests(nextPhysicalTests);
+      setPhysicalRecords(nextPhysicalRecords);
       setSelectedStudentId((prev) => {
-        if (focusStudentId && data.some((st: Student) => s(st.student_id) === s(focusStudentId))) return focusStudentId;
-        if (prev && data.some((st: Student) => s(st.student_id) === s(prev))) return prev;
-        return data[0]?.student_id ? s(data[0].student_id) : null;
+        if (focusStudentId && nextStudents.some((st) => s(st.student_id) === s(focusStudentId))) {
+          return focusStudentId;
+        }
+        if (prev && nextStudents.some((st) => s(st.student_id) === s(prev))) {
+          return prev;
+        }
+        return nextStudents[0]?.student_id ? s(nextStudents[0].student_id) : null;
       });
     } catch {
-      setStudents([]);
+      setRawStudents([]);
+      setBranches([]);
+      setAccounts([]);
+      setMockExams([]);
+      setMockScores([]);
+      setPhysicalTests(DEFAULT_PHYSICAL_TESTS);
+      setPhysicalRecords([]);
       setSelectedStudentId(null);
     } finally {
       setLoading(false);
@@ -312,9 +437,46 @@ export default function Home() {
   };
 
   useEffect(() => {
-    loadBranches();
-    loadStudents(true);
+    loadPortalData();
   }, []);
+
+  useEffect(() => {
+    if (accounts.length === 0) {
+      return;
+    }
+
+    try {
+      const savedLoginId = sessionStorage.getItem("portal_login_id");
+      if (!savedLoginId) {
+        return;
+      }
+
+      const matchedAccount = accounts.find(
+        (account) => s(account.login_id) === savedLoginId && isTruthy(account.is_active)
+      );
+
+      if (matchedAccount) {
+        setCurrentAccount(matchedAccount);
+      }
+    } catch {}
+  }, [accounts]);
+
+  useEffect(() => {
+    if (!currentAccount) {
+      return;
+    }
+
+    const currentStudentId = s(currentAccount.student_id).trim();
+    const currentBranchId = s(currentAccount.branch_id).trim();
+
+    if (currentBranchId) {
+      setBranchFilter(currentBranchId);
+    }
+
+    if (currentStudentId) {
+      setSelectedStudentId(currentStudentId);
+    }
+  }, [currentAccount]);
 
   const selectedStudent = useMemo(
     () => students.find((st) => s(st.student_id) === s(selectedStudentId)) || null,
@@ -478,6 +640,41 @@ export default function Home() {
     setIsModalOpen(true);
   };
 
+  const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const matchedAccount = accounts.find(
+      (account) =>
+        s(account.login_id).trim() === s(loginId).trim() &&
+        s(account.password_hash) === s(loginPassword) &&
+        isTruthy(account.is_active)
+    );
+
+    if (!matchedAccount) {
+      setLoginError("로그인 정보가 올바르지 않거나 비활성 계정입니다.");
+      return;
+    }
+
+    setCurrentAccount(matchedAccount);
+    setLoginError("");
+
+    try {
+      sessionStorage.setItem("portal_login_id", s(matchedAccount.login_id));
+    } catch {}
+  };
+
+  const handleLogout = () => {
+    setCurrentAccount(null);
+    setLoginId("");
+    setLoginPassword("");
+    setLoginError("");
+    setBranchFilter("ALL");
+
+    try {
+      sessionStorage.removeItem("portal_login_id");
+    } catch {}
+  };
+
   const openEditModal = () => {
     if (!selectedStudent) {
       alert("수정할 학생을 먼저 선택하세요.");
@@ -488,63 +685,40 @@ export default function Home() {
   };
 
   const handleModalSave = async (student: Student) => {
-    // Validation
-    if (!student.name || !student.school_name || !student.grade || !student.branch_id || !student.exam_id) {
-      alert("이름, 학교, 학년, 지점, 시험 유형은 필수입니다.");
+    if (!student.name || !student.school_name || !student.grade || !student.branch_id) {
+      alert("이름, 학교, 학년, 지점은 필수입니다.");
       return;
     }
 
     try {
       setSaving(true);
-      const method = modalMode === "add" ? "POST" : "PUT";
-      const res = await fetch("/api/students", {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-        },
-        body: JSON.stringify(student),
-      });
-      const result = await safeJson(res);
+      const existingStudent = rawStudents.find(
+        (item) => s(item.student_id).trim() === s(student.student_id).trim()
+      );
+      const nextStudentRow = buildStudentSheetRow(student, existingStudent);
 
-      if (!res.ok || !result.ok) {
-        alert(result.error || "저장에 실패했습니다.");
-        return;
-      }
+      await savePortalRow({
+        sheetName: "students",
+        keyField: "student_id",
+        row: nextStudentRow,
+      });
 
       setIsModalOpen(false);
-      clearStudentCache();
 
-      // Immediately update the students array and select the new student
-      if (modalMode === "add") {
-        // For new students, use the returned student data if available, otherwise use sent data
-        const newStudent = result.student || {
-          ...student,
-          student_id: result.student_id || student.student_id,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        // Save scores and physical records to cache for persistence
-        saveScoresToCache(newStudent);
-        savePhysicalToCache(newStudent);
-        setStudents(prev => [...prev, newStudent]);
-        setSelectedStudentId(s(newStudent.student_id));
-      } else {
-        // For updates, use the returned student data if available, otherwise use sent data
-        const updatedStudent = result.student || {
-          ...student,
-          updated_at: new Date().toISOString()
-        };
-        // Save scores and physical records to cache for persistence
-        saveScoresToCache(updatedStudent);
-        savePhysicalToCache(updatedStudent);
-        setStudents(prev => prev.map(st =>
-          s(st.student_id) === s(student.student_id) ? updatedStudent : st
-        ));
-        // Keep the same selected student
-      }
+      setRawStudents((prev) => {
+        const existingIndex = prev.findIndex(
+          (item) => s(item.student_id).trim() === s(nextStudentRow.student_id).trim()
+        );
 
-      // Data is already updated with the response from save operation
+        if (existingIndex >= 0) {
+          const nextStudents = [...prev];
+          nextStudents[existingIndex] = nextStudentRow;
+          return nextStudents;
+        }
+
+        return [...prev, nextStudentRow];
+      });
+      setSelectedStudentId(s(nextStudentRow.student_id));
     } catch (error) {
       console.error(error);
       alert("저장 중 오류가 발생했습니다.");
@@ -553,55 +727,101 @@ export default function Home() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!selectedStudent) {
-      alert("삭제할 학생을 먼저 선택하세요.");
-      return;
+  const handleExamScoreSave = async (examId: string, scores: Partial<Student>) => {
+    if (!selectedStudent || !selectedStudent.student_id) {
+      throw new Error("학생 정보가 없어 시험 성적만 저장할 수 없습니다.");
     }
-    const ok = confirm(`${s(selectedStudent.name)} 학생을 삭제할까요?`);
-    if (!ok) return;
 
-    try {
-      setSaving(true);
-      const res = await fetch("/api/students", {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-        },
-        body: JSON.stringify({
-          student_id: s(selectedStudent.student_id),
-        }),
-      });
-      const result = await safeJson(res);
+    const existingScore = mockScores.find(
+      (item) =>
+        s(item.student_id).trim() === s(selectedStudent.student_id).trim() &&
+        s(item.exam_id).trim() === s(examId).trim()
+    );
+    const now = new Date().toISOString();
+    const nextScoreRow: MockScore = {
+      ...existingScore,
+      score_id: s(existingScore?.score_id).trim() || buildGeneratedId(`score-${selectedStudent.student_id}-${examId}`),
+      student_id: s(selectedStudent.student_id).trim(),
+      student_name: s(selectedStudent.name).trim(),
+      branch_id: s(selectedStudent.branch_id).trim(),
+      exam_id: s(examId).trim(),
+      created_at: s(existingScore?.created_at).trim() || now,
+      updated_at: now,
+    };
 
-      if (!res.ok || !result.ok) {
-        alert(result.error || "삭제에 실패했습니다.");
-        return;
+    SCORE_FIELD_KEYS.forEach((fieldName) => {
+      nextScoreRow[fieldName] = s(scores[fieldName as keyof Student]).trim();
+    });
+
+    await savePortalRow({
+      sheetName: "mock_scores",
+      keyField: "score_id",
+      row: nextScoreRow as Record<string, unknown>,
+    });
+
+    setMockScores((prev) => {
+      const existingIndex = prev.findIndex(
+        (item) => s(item.score_id).trim() === s(nextScoreRow.score_id).trim()
+      );
+
+      if (existingIndex >= 0) {
+        const nextScores = [...prev];
+        nextScores[existingIndex] = nextScoreRow;
+        return nextScores;
       }
 
-      clearStudentCache();
-      // Also clear from score and physical caches
-      try {
-        const scoreCache = JSON.parse(localStorage.getItem(SCORE_CACHE_KEY) || "{}") as Record<string, any>;
-        delete scoreCache[s(selectedStudent.student_id)];
-        localStorage.setItem(SCORE_CACHE_KEY, JSON.stringify(scoreCache));
-      } catch {}
-      try {
-        const physicalCache = JSON.parse(localStorage.getItem(PHYSICAL_CACHE_KEY) || "{}") as Record<string, any>;
-        delete physicalCache[s(selectedStudent.student_id)];
-        localStorage.setItem(PHYSICAL_CACHE_KEY, JSON.stringify(physicalCache));
-      } catch {}
-      
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      await loadStudents(true);
-      setIsDetailPopupOpen(false);
-    } catch (error) {
-      console.error(error);
-      alert("삭제 중 오류가 발생했습니다.");
-    } finally {
-      setSaving(false);
-    }
+      return [...prev, nextScoreRow];
+    });
+  };
+
+  const handlePhysicalRecordSave = async (record: PhysicalRecord) => {
+    const existingRecord = physicalRecords.find(
+      (item) =>
+        s(item.student_id).trim() === s(record.student_id).trim() &&
+        s(item.test_id).trim() === s(record.test_id).trim()
+    );
+    const now = new Date().toISOString();
+    const nextRecord: PhysicalRecord = {
+      ...existingRecord,
+      ...record,
+      record_id: s(existingRecord?.record_id).trim() || s(record.record_id).trim() || buildGeneratedId(`record-${record.student_id}-${record.test_id}`),
+      student_id: s(record.student_id).trim(),
+      student_name: s(selectedStudent?.name).trim(),
+      branch_id: s(selectedStudent?.branch_id).trim(),
+      test_id: s(record.test_id).trim(),
+      back_strength_value: s(record.back_strength_value).trim(),
+      run_10m_value: s(record.run_10m_value).trim(),
+      medicine_ball_value: s(record.medicine_ball_value).trim(),
+      sit_reach_value: s(record.sit_reach_value).trim(),
+      standing_jump_value: s(record.standing_jump_value).trim(),
+      run_20m_value: s(record.run_20m_value).trim(),
+      created_at: s(existingRecord?.created_at).trim() || now,
+      updated_at: now,
+    };
+
+    await savePortalRow({
+      sheetName: "physical_records",
+      keyField: "record_id",
+      row: nextRecord as Record<string, unknown>,
+    });
+
+    setPhysicalRecords((prev) => {
+      const existingIndex = prev.findIndex(
+        (item) => s(item.record_id).trim() === s(nextRecord.record_id).trim()
+      );
+
+      if (existingIndex >= 0) {
+        const nextRecords = [...prev];
+        nextRecords[existingIndex] = nextRecord;
+        return nextRecords;
+      }
+
+      return [...prev, nextRecord];
+    });
+  };
+
+  const handleDelete = async () => {
+    alert("현재 구글시트 연동 단계에서는 삭제 기능이 연결되어 있지 않습니다.");
   };
 
   const downloadCsv = (rows: Student[], filename: string) => {
@@ -771,6 +991,49 @@ export default function Home() {
     printWindow.print();
   };
 
+  if (loading) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.stateBox}>포털 데이터를 불러오는 중입니다...</div>
+        </div>
+      </main>
+    );
+  }
+
+  if (!currentAccount) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={{ maxWidth: 420, margin: "80px auto", background: "#ffffff", borderRadius: 18, padding: 28, boxShadow: "0 18px 42px rgba(15, 23, 42, 0.12)", border: "1px solid #dbe7f3" }}>
+            <p style={styles.badge}>FINAL 관리자 시스템</p>
+            <h1 style={{ margin: "12px 0 8px", fontSize: 28, color: "#0f172a" }}>로그인</h1>
+            <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>accounts 시트의 login_id / password_hash / is_active 구조를 사용합니다.</p>
+            <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 24 }}>
+              <input
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                placeholder="login_id"
+                style={styles.searchInput}
+              />
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="password_hash"
+                style={styles.searchInput}
+              />
+              {loginError ? <div style={{ color: "#b91c1c", fontSize: 13 }}>{loginError}</div> : null}
+              <button type="submit" style={{ ...styles.addButton, width: "100%", justifyContent: "center" }}>
+                로그인
+              </button>
+            </form>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main style={styles.page}>
       <div style={styles.container}>
@@ -781,9 +1044,16 @@ export default function Home() {
             <p style={styles.subtitle}>지점, 학생정보, 성적, 평균, 통계를 한 화면에서 관리합니다.</p>
           </div>
           <div style={styles.headerActions}>
+            <div style={{ fontSize: 13, color: "#475569", textAlign: "right" }}>
+              <div>{s(currentAccount.name) || s(currentAccount.login_id)}</div>
+              <div>{s(currentAccount.role) || "user"}</div>
+            </div>
             <a href="/branches" style={styles.navLink}>
               지점 관리 →
             </a>
+            <button style={styles.secondaryButton} onClick={handleLogout}>
+              로그아웃
+            </button>
           </div>
         </header>
 
@@ -1107,9 +1377,14 @@ export default function Home() {
         mode={modalMode}
         student={modalMode === "edit" ? selectedStudent : null}
         branches={branches}
+        mockExams={mockExams}
+        physicalTests={physicalTests}
+        physicalRecords={physicalRecords}
         saving={saving}
         onClose={() => setIsModalOpen(false)}
         onSave={handleModalSave}
+        onSaveExamScores={handleExamScoreSave}
+        onSavePhysicalRecord={handlePhysicalRecordSave}
       />
     </main>
   );

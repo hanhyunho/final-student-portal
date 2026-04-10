@@ -57,7 +57,19 @@ export type Student = {
 
 export type Branch = {
   branch_id: string;
+  branch_code?: string;
   branch_name: string;
+  [key: string]: string | undefined;
+};
+
+export type Account = {
+  login_id: string;
+  password_hash: string;
+  role?: string;
+  student_id?: string;
+  branch_id?: string;
+  name?: string;
+  is_active?: string;
   [key: string]: string | undefined;
 };
 
@@ -67,6 +79,97 @@ export type Exam = {
   exam_date: string;
   status: string;
   [key: string]: string | undefined;
+};
+
+export type MockExam = {
+  exam_id: string;
+  exam_name: string;
+  exam_date?: string;
+  status?: string;
+  [key: string]: string | undefined;
+};
+
+export type MockScore = {
+  score_id?: string;
+  student_id: string;
+  exam_id: string;
+  student_name?: string;
+  branch_id?: string;
+  korean_name?: string;
+  korean_raw?: string;
+  korean_std?: string;
+  korean_pct?: string;
+  korean_grade?: string;
+  math_name?: string;
+  math_raw?: string;
+  math_std?: string;
+  math_pct?: string;
+  math_grade?: string;
+  english_raw?: string;
+  english_grade?: string;
+  inquiry1_name?: string;
+  inquiry1_raw?: string;
+  inquiry1_std?: string;
+  inquiry1_pct?: string;
+  inquiry1_grade?: string;
+  inquiry2_name?: string;
+  inquiry2_raw?: string;
+  inquiry2_std?: string;
+  inquiry2_pct?: string;
+  inquiry2_grade?: string;
+  history_raw?: string;
+  history_grade?: string;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: string | undefined;
+};
+
+export type PhysicalTest = {
+  test_id: string;
+  test_name: string;
+  test_date?: string;
+  status?: string;
+  [key: string]: string | undefined;
+};
+
+export type PhysicalRecord = {
+  record_id?: string;
+  student_id: string;
+  test_id: string;
+  student_name?: string;
+  branch_id?: string;
+  branch_name?: string;
+  campus?: string;
+  campus_name?: string;
+  test_date?: string;
+  exam_date?: string;
+  back_strength_value: string;
+  run_10m_value: string;
+  medicine_ball_value: string;
+  sit_reach_value: string;
+  standing_jump_value: string;
+  run_20m_value: string;
+  back_strength_score?: string;
+  run_10m_score?: string;
+  medicine_ball_score?: string;
+  sit_reach_score?: string;
+  standing_jump_score?: string;
+  run_20m_score?: string;
+  total_score?: string;
+  rank_no?: string;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: string | undefined;
+};
+
+export type PortalData = {
+  branches: Branch[];
+  accounts: Account[];
+  students: Student[];
+  mockExams: MockExam[];
+  mockScores: MockScore[];
+  physicalTests: PhysicalTest[];
+  physicalRecords: PhysicalRecord[];
 };
 
 export type ApiResponse<T> = {
