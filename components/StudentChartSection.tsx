@@ -14,6 +14,16 @@ export function StudentChartSection({
   getBarWidth,
   s,
 }: StudentChartSectionProps) {
+  const hasScoreData = selectedStudent
+    ? [
+        selectedStudent.korean_raw,
+        selectedStudent.math_raw,
+        selectedStudent.english_raw,
+        selectedStudent.inquiry1_raw,
+        selectedStudent.inquiry2_raw,
+      ].some((value) => getScoreNumber(value) > 0)
+    : false;
+
   const styles: { [key: string]: React.CSSProperties } = {
     chartSection: {
       background: "#ffffff",
@@ -40,6 +50,15 @@ export function StudentChartSection({
       display: "flex",
       flexDirection: "column",
       gap: "18px",
+    },
+    stateBox: {
+      background: "#f8fafc",
+      borderRadius: "14px",
+      padding: "28px 24px",
+      fontSize: "14px",
+      color: "#64748b",
+      textAlign: "center",
+      border: "1px dashed #cbd5e1",
     },
     chartRow: {
       display: "flex",
@@ -96,31 +115,35 @@ export function StudentChartSection({
         <p style={styles.chartDesc}>{s(selectedStudent.name)} 학생의 주요 과목 점수</p>
       </div>
 
-      <div style={styles.chartCard}>
-        {[
-          ["국어", selectedStudent.korean_raw, styles.koreanBar],
-          ["수학", selectedStudent.math_raw, styles.mathBar],
-          ["영어", selectedStudent.english_raw, styles.englishBar],
-          ["탐구1", selectedStudent.inquiry1_raw, styles.koreanBar],
-          ["탐구2", selectedStudent.inquiry2_raw, styles.mathBar],
-        ].map(([label, value, barStyle]) => (
-          <div key={String(label)} style={styles.chartRow}>
-            <div style={styles.chartLabelWrap}>
-              <span style={styles.chartLabel}>{String(label)}</span>
-              <span style={styles.chartValue}>{s(value) || "-"}</span>
+      {hasScoreData ? (
+        <div style={styles.chartCard}>
+          {[
+            ["국어", selectedStudent.korean_raw, styles.koreanBar],
+            ["수학", selectedStudent.math_raw, styles.mathBar],
+            ["영어", selectedStudent.english_raw, styles.englishBar],
+            ["탐구1", selectedStudent.inquiry1_raw, styles.koreanBar],
+            ["탐구2", selectedStudent.inquiry2_raw, styles.mathBar],
+          ].map(([label, value, barStyle]) => (
+            <div key={String(label)} style={styles.chartRow}>
+              <div style={styles.chartLabelWrap}>
+                <span style={styles.chartLabel}>{String(label)}</span>
+                <span style={styles.chartValue}>{s(value) || "-"}</span>
+              </div>
+              <div style={styles.chartTrack}>
+                <div
+                  style={{
+                    ...styles.chartBar,
+                    ...(barStyle as React.CSSProperties),
+                    width: getBarWidth(value as string | number | undefined),
+                  }}
+                />
+              </div>
             </div>
-            <div style={styles.chartTrack}>
-              <div
-                style={{
-                  ...styles.chartBar,
-                  ...(barStyle as React.CSSProperties),
-                  width: getBarWidth(value as string | number | undefined),
-                }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div style={styles.stateBox}>표시할 데이터가 없습니다.</div>
+      )}
     </section>
   );
 }

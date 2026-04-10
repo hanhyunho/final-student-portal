@@ -63,6 +63,7 @@ export type Branch = {
 };
 
 export type Account = {
+  account_id?: string;
   login_id: string;
   password_hash: string;
   role?: string;
@@ -172,12 +173,185 @@ export type PortalData = {
   physicalRecords: PhysicalRecord[];
 };
 
+export type StudentMockChartPoint = {
+  exam_id: string;
+  label: string;
+  exam_name: string;
+  exam_date: string;
+  korean: number;
+  math: number;
+  english: number;
+  average: number;
+};
+
+export type StudentPhysicalChartPoint = {
+  test_id: string;
+  label: string;
+  test_name: string;
+  test_date: string;
+  total_score: number;
+  back_strength: number;
+  run_10m: number;
+  standing_jump: number;
+  run_20m: number;
+};
+
 export type ApiResponse<T> = {
   ok: boolean;
   error?: string;
   data?: T;
   [key: string]: any;
 };
+
+function s(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function getNumericValue(value: unknown) {
+  const numericValue = Number(value ?? 0);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function getSortableDateValue(rawDate: unknown) {
+  const normalizedDate = s(rawDate);
+  const dateMatch = normalizedDate.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+
+  if (!dateMatch) {
+    return -1;
+  }
+
+  return Number(`${dateMatch[1]}${dateMatch[2].padStart(2, "0")}${dateMatch[3].padStart(2, "0")}`);
+}
+
+function buildMockExamLabel(exam: MockExam | undefined, score: MockScore) {
+  const examName = s(exam?.exam_name) || s(score.exam_id) || "시험";
+  const examDate = s(exam?.exam_date);
+
+  return examDate ? `${examName} (${examDate})` : examName;
+}
+
+function buildPhysicalTestLabel(test: PhysicalTest | undefined, record: PhysicalRecord) {
+  const testName = s(test?.test_name) || "실기";
+  const testDate = s(record.test_date) || s(test?.test_date);
+
+  return testDate ? `${testName} (${testDate})` : testName;
+}
+
+type StudentMockChartDataArgs = {
+  studentId: string;
+  mockScores: MockScore[];
+  mockExams: MockExam[];
+  debug?: boolean;
+};
+
+type StudentPhysicalChartDataArgs = {
+  studentId: string;
+  physicalRecords: PhysicalRecord[];
+  physicalTests: PhysicalTest[];
+  debug?: boolean;
+};
+
+export function getStudentMockChartData({
+  studentId,
+  mockScores,
+  mockExams,
+  debug = false,
+}: StudentMockChartDataArgs): StudentMockChartPoint[] {
+  const normalizedStudentId = s(studentId);
+  const matchedScores = mockScores.filter((score) => s(score.student_id) === normalizedStudentId);
+  const examsById = new Map(mockExams.map((exam) => [s(exam.exam_id), exam]));
+
+  const chartData = [...matchedScores]
+    .sort((left, right) => {
+      const rightDate = getSortableDateValue(examsById.get(s(right.exam_id))?.exam_date);
+      const leftDate = getSortableDateValue(examsById.get(s(left.exam_id))?.exam_date);
+
+      if (leftDate !== rightDate) {
+        return leftDate - rightDate;
+      }
+
+      return s(left.updated_at).localeCompare(s(right.updated_at));
+    })
+    .map((score) => {
+      const exam = examsById.get(s(score.exam_id));
+      const korean = getNumericValue(score.korean_raw);
+      const math = getNumericValue(score.math_raw);
+      const english = getNumericValue(score.english_raw);
+      const averageBase = [korean, math, english].filter((value) => value > 0);
+
+      return {
+        exam_id: s(score.exam_id),
+        label: buildMockExamLabel(exam, score),
+        exam_name: s(exam?.exam_name) || s(score.exam_id),
+        exam_date: s(exam?.exam_date),
+        korean,
+        math,
+        english,
+        average:
+          averageBase.length > 0
+            ? Number((averageBase.reduce((sum, value) => sum + value, 0) / averageBase.length).toFixed(1))
+            : 0,
+      };
+    });
+
+  if (debug) {
+    console.debug("[student-mock-chart]", {
+      selectedStudentId: normalizedStudentId,
+      matchedMockScoresCount: matchedScores.length,
+      joinedExamLabels: chartData.map((item) => item.label),
+    });
+  }
+
+  return chartData;
+}
+
+export function getStudentPhysicalChartData({
+  studentId,
+  physicalRecords,
+  physicalTests,
+  debug = false,
+}: StudentPhysicalChartDataArgs): StudentPhysicalChartPoint[] {
+  const normalizedStudentId = s(studentId);
+  const matchedRecords = physicalRecords.filter((record) => s(record.student_id) === normalizedStudentId);
+  const testsById = new Map(physicalTests.map((test) => [s(test.test_id), test]));
+
+  const chartData = [...matchedRecords]
+    .sort((left, right) => {
+      const leftDate = getSortableDateValue(s(left.test_date) || testsById.get(s(left.test_id))?.test_date);
+      const rightDate = getSortableDateValue(s(right.test_date) || testsById.get(s(right.test_id))?.test_date);
+
+      if (leftDate !== rightDate) {
+        return leftDate - rightDate;
+      }
+
+      return s(left.updated_at).localeCompare(s(right.updated_at));
+    })
+    .map((record) => {
+      const test = testsById.get(s(record.test_id));
+
+      return {
+        test_id: s(record.test_id),
+        label: buildPhysicalTestLabel(test, record),
+        test_name: s(test?.test_name),
+        test_date: s(record.test_date) || s(test?.test_date),
+        total_score: getNumericValue(record.total_score),
+        back_strength: getNumericValue(record.back_strength_value),
+        run_10m: getNumericValue(record.run_10m_value),
+        standing_jump: getNumericValue(record.standing_jump_value),
+        run_20m: getNumericValue(record.run_20m_value),
+      };
+    });
+
+  if (debug) {
+    console.debug("[student-physical-chart]", {
+      selectedStudentId: normalizedStudentId,
+      matchedPhysicalRecordsCount: matchedRecords.length,
+      joinedTestLabels: chartData.map((item) => item.label),
+    });
+  }
+
+  return chartData;
+}
 
 async function safeJson(res: Response) {
   const text = await res.text();

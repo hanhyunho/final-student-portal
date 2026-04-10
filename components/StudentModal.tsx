@@ -15,8 +15,12 @@ interface StudentModalProps {
   physicalRecords: PhysicalRecord[];
   saving: boolean;
   onClose: () => void;
-  onSave: (student: Student) => Promise<void>;
-  onSaveExamScores?: (examId: string, scores: Partial<Student>) => Promise<void>;
+  onSave: (student: Student) => Promise<Student | null>;
+  onSaveExamScores?: (
+    examId: string,
+    scores: Partial<Student>,
+    targetStudent?: Pick<Student, "student_id" | "name" | "branch_id">
+  ) => Promise<void>;
   onSavePhysicalRecord?: (record: PhysicalRecord) => Promise<void>;
 }
 
@@ -222,6 +226,14 @@ export function StudentModal({
   const getCurrentStudentId = useCallback(() => {
     return s(student?.student_id || form.student_id);
   }, [form.student_id, student]);
+
+  const getCurrentStudentSnapshot = useCallback(() => {
+    return {
+      student_id: s(student?.student_id || form.student_id).trim(),
+      name: s(student?.name || form.name).trim(),
+      branch_id: s(student?.branch_id || form.branch_id).trim(),
+    };
+  }, [form.branch_id, form.name, form.student_id, student]);
 
   const getCurrentCampusCandidates = useCallback(() => {
     const currentBranchId = s(student?.branch_id || form.branch_id).trim();
@@ -710,7 +722,10 @@ export function StudentModal({
         history: false,
         physical: false,
       }));
-      setForm(emptyForm);
+      setForm({
+        ...emptyForm,
+        branch_id: branches.length === 1 ? s(branches[0]?.branch_id) : "",
+      });
       setExamScores({});
       setCurrentExamId("");
       setHasUnsavedExamChanges(false);
@@ -831,7 +846,7 @@ export function StudentModal({
       setSelectedPhysicalTestId(nextPhysicalTestId);
       loadPhysicalRecord(nextPhysicalTestId);
     }
-  }, [isOpen, mode, student, physicalRecords, physicalTests, loadPhysicalRecord, selectedPhysicalTestId]);
+  }, [branches, isOpen, mode, student, physicalRecords, physicalTests, loadPhysicalRecord, selectedPhysicalTestId]);
 
   useEffect(() => {
     if (!isOpen || !leftPanelRef.current) {
@@ -939,14 +954,31 @@ export function StudentModal({
       // Add all exam drafts to the payload
       (payload as any).exam_scores = examScores;
 
-      await onSave(payload);
+      const savedStudent = await onSave(payload);
+      if (!savedStudent) {
+        return;
+      }
+
+      const savedStudentContext = {
+        student_id: s(savedStudent.student_id).trim(),
+        name: s(savedStudent.name).trim(),
+        branch_id: s(savedStudent.branch_id).trim(),
+      };
+
+      setForm((prev) => ({
+        ...prev,
+        student_id: savedStudentContext.student_id,
+        name: savedStudentContext.name || prev.name,
+        branch_id: savedStudentContext.branch_id || prev.branch_id,
+      }));
+
       clearAllExamDrafts(getDraftStudentId());
 
       // Save all exam scores if the callback is provided
       if (onSaveExamScores) {
         for (const [examId, scores] of Object.entries(examScores)) {
           if (examId && Object.keys(scores).length > 0) {
-            await onSaveExamScores(examId, scores);
+            await onSaveExamScores(examId, scores, savedStudentContext);
           }
         }
       }
@@ -972,6 +1004,12 @@ export function StudentModal({
 
     try {
       setSavingExam(true);
+      const currentStudentSnapshot = getCurrentStudentSnapshot();
+
+      if (!currentStudentSnapshot.student_id) {
+        alert("학생 기본 정보를 먼저 저장하세요.");
+        return;
+      }
 
       const currentExamFields: Partial<Student> = {};
       examFieldKeys.forEach((key) => {
@@ -996,7 +1034,7 @@ export function StudentModal({
       await onSaveExamScores(currentExamId, {
         ...currentExamFields,
         ...({ exam_scores: nextExamScores } as any),
-      });
+      }, currentStudentSnapshot);
       clearExamDraft(getDraftStudentId(), currentExamId);
       setHasUnsavedExamChanges(false);
     } catch (error) {

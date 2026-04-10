@@ -103,7 +103,7 @@ async function fetchSheetRows(sheetName: string) {
   return parseCsv(text);
 }
 
-function asRows<T extends Record<string, string | undefined>>(rows: Array<Record<string, string>>) {
+function asRows<T>(rows: Array<Record<string, string>>) {
   return rows.map((row) => row as T);
 }
 

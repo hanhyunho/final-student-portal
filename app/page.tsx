@@ -10,9 +10,13 @@ import type {
   PhysicalTest,
   PhysicalRecord,
   Student,
+  StudentMockChartPoint,
+  StudentPhysicalChartPoint,
 } from "@/lib/dataService";
+import { getStudentMockChartData, getStudentPhysicalChartData } from "@/lib/dataService";
 import { StudentModal } from "@/components/StudentModal";
 import { StudentDetailPanel } from "@/components/StudentDetailPanel";
+import { StudentChartSection } from "@/components/StudentChartSection";
 
 type SortType =
   | "default"
@@ -24,6 +28,21 @@ type SortType =
   | "englishDesc";
 
 type ModalMode = "add" | "edit";
+
+type Role = "super_admin" | "branch_manager" | "student" | "";
+
+type AccountSession = {
+  account_id: string;
+  login_id: string;
+  role: string;
+  student_id: string;
+  branch_id: string;
+  name: string;
+};
+
+type PortalDataMode = "auth" | "scoped";
+
+const PORTAL_ACCOUNT_SESSION_KEY = "portal_account";
 
 const SCORE_FIELD_KEYS = [
   "korean_name",
@@ -100,8 +119,48 @@ function normalizeCompareText(value: unknown) {
   return s(value).trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function normalizeRole(value: unknown): Role {
+  const normalized = normalizeCompareText(value);
+
+  if (normalized === "super_admin" || normalized === "branch_manager" || normalized === "student") {
+    return normalized;
+  }
+
+  return "";
+}
+
+function buildAccountSession(account: Account): AccountSession {
+  return {
+    account_id: s(account.account_id).trim(),
+    login_id: s(account.login_id).trim(),
+    role: s(account.role).trim(),
+    student_id: s(account.student_id).trim(),
+    branch_id: s(account.branch_id).trim(),
+    name: s(account.name).trim(),
+  };
+}
+
+function buildPortalDataUrl(mode: PortalDataMode, account?: Account | null) {
+  const params = new URLSearchParams({
+    _ts: String(Date.now()),
+    mode,
+  });
+
+  if (mode === "scoped" && account) {
+    params.set("role", normalizeRole(account.role));
+    params.set("branch_id", s(account.branch_id).trim());
+    params.set("student_id", s(account.student_id).trim());
+  }
+
+  return `/api/portal-data?${params.toString()}`;
+}
+
 function isTruthy(value: unknown) {
-  return /^(true|1|y|yes)$/i.test(s(value).trim());
+  const normalized = s(value).trim();
+  if (normalized === "") {
+    return true;
+  }
+  return /^(true|1|y|yes)$/i.test(normalized);
 }
 
 function buildGeneratedId(prefix: string) {
@@ -324,6 +383,19 @@ function csvEscape(value: unknown) {
   return str;
 }
 
+function debugLogLoginFailure(reason: "id mismatch" | "password mismatch" | "inactive", account: Account) {
+  if (process.env.NODE_ENV !== "development") {
+    return;
+  }
+
+  console.log("[login-debug]", reason, {
+    login_id: s(account.login_id).trim(),
+    password_hash: s(account.password_hash).trim(),
+    is_active: s(account.is_active).trim(),
+    role: s(account.role).trim(),
+  });
+}
+
 export default function Home() {
   const [rawStudents, setRawStudents] = useState<Student[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -365,16 +437,32 @@ export default function Home() {
     [mockExams, mockScores, physicalRecords, physicalTests, rawStudents]
   );
 
+  const currentRole = normalizeRole(currentAccount?.role);
+  const currentStudentId = s(currentAccount?.student_id).trim();
+  const currentBranchId = s(currentAccount?.branch_id).trim();
+  const isSuperAdmin = currentRole === "super_admin";
+  const isBranchManager = currentRole === "branch_manager";
+  const isStudentRole = currentRole === "student";
+  const canManageStudents = isSuperAdmin || isBranchManager;
+
   const getBranchLabel = (branchId: string | undefined) => {
     const found = branches.find((b) => s(b.branch_id) === s(branchId));
     return found ? s(found.branch_name) : branchId || "-";
   };
 
-  const loadPortalData = async (focusStudentId?: string) => {
+  const loadPortalData = async ({
+    mode,
+    account,
+    focusStudentId,
+  }: {
+    mode: PortalDataMode;
+    account?: Account | null;
+    focusStudentId?: string;
+  }) => {
     setLoading(true);
 
     try {
-      const res = await fetch(`/api/portal-data?_ts=${Date.now()}`, {
+      const res = await fetch(buildPortalDataUrl(mode, account), {
         method: "GET",
         cache: "no-store",
       });
@@ -406,8 +494,33 @@ export default function Home() {
         ? (result.physicalRecords as PhysicalRecord[])
         : [];
 
+      if (process.env.NODE_ENV === "development") {
+        if (mode === "auth") {
+          console.log(
+            "[accounts-debug:first-5]",
+            nextAccounts.slice(0, 5).map((account) => ({
+              login_id: s(account.login_id).trim(),
+              password_hash: s(account.password_hash).trim(),
+              is_active: s(account.is_active).trim(),
+              role: s(account.role).trim(),
+            }))
+          );
+        }
+
+        console.log("[portal-data-counts]", {
+          mode,
+          role: mode === "scoped" ? normalizeRole(account?.role) : "auth",
+          branchCount: nextBranches.length,
+          studentCount: nextStudents.length,
+          mockScoreCount: nextMockScores.length,
+          physicalRecordCount: nextPhysicalRecords.length,
+        });
+      }
+
       setBranches(nextBranches);
-      setAccounts(nextAccounts);
+      if (mode === "auth") {
+        setAccounts(nextAccounts);
+      }
       setRawStudents(nextStudents);
       setMockExams(nextMockExams);
       setMockScores(nextMockScores);
@@ -437,8 +550,20 @@ export default function Home() {
   };
 
   useEffect(() => {
-    loadPortalData();
+    loadPortalData({ mode: "auth" });
   }, []);
+
+  useEffect(() => {
+    if (!currentAccount) {
+      return;
+    }
+
+    loadPortalData({
+      mode: "scoped",
+      account: currentAccount,
+      focusStudentId: s(currentAccount.student_id).trim() || undefined,
+    });
+  }, [currentAccount]);
 
   useEffect(() => {
     if (accounts.length === 0) {
@@ -446,13 +571,37 @@ export default function Home() {
     }
 
     try {
-      const savedLoginId = sessionStorage.getItem("portal_login_id");
-      if (!savedLoginId) {
+      const savedAccountText = sessionStorage.getItem(PORTAL_ACCOUNT_SESSION_KEY);
+
+      if (savedAccountText) {
+        const savedAccount = JSON.parse(savedAccountText) as Partial<AccountSession>;
+        const savedAccountId = s(savedAccount.account_id).trim();
+        const savedLoginId = s(savedAccount.login_id).trim();
+        const matchedAccount = accounts.find((account) => {
+          if (!isTruthy(account.is_active)) {
+            return false;
+          }
+
+          if (savedAccountId && s(account.account_id).trim() === savedAccountId) {
+            return true;
+          }
+
+          return savedLoginId !== "" && s(account.login_id).trim() === savedLoginId;
+        });
+
+        if (matchedAccount) {
+          setCurrentAccount(matchedAccount);
+          return;
+        }
+      }
+
+      const legacyLoginId = sessionStorage.getItem("portal_login_id");
+      if (!legacyLoginId) {
         return;
       }
 
       const matchedAccount = accounts.find(
-        (account) => s(account.login_id) === savedLoginId && isTruthy(account.is_active)
+        (account) => s(account.login_id).trim() === s(legacyLoginId).trim() && isTruthy(account.is_active)
       );
 
       if (matchedAccount) {
@@ -478,20 +627,146 @@ export default function Home() {
     }
   }, [currentAccount]);
 
-  const selectedStudent = useMemo(
-    () => students.find((st) => s(st.student_id) === s(selectedStudentId)) || null,
-    [students, selectedStudentId]
+  const scopedStudents = useMemo(() => {
+    if (!currentAccount) {
+      return students;
+    }
+
+    if (isSuperAdmin) {
+      return students;
+    }
+
+    if (isBranchManager) {
+      return students.filter((student) => s(student.branch_id).trim() === currentBranchId);
+    }
+
+    if (isStudentRole) {
+      return students.filter((student) => s(student.student_id).trim() === currentStudentId);
+    }
+
+    return [];
+  }, [currentAccount, currentBranchId, currentStudentId, isBranchManager, isStudentRole, isSuperAdmin, students]);
+
+  const scopedStudentIds = useMemo(
+    () => new Set(scopedStudents.map((student) => s(student.student_id).trim()).filter(Boolean)),
+    [scopedStudents]
   );
 
+  const scopedBranches = useMemo(() => {
+    if (!currentAccount || isSuperAdmin) {
+      return branches;
+    }
+
+    if (isBranchManager) {
+      return branches.filter((branch) => s(branch.branch_id).trim() === currentBranchId);
+    }
+
+    if (isStudentRole) {
+      const studentBranchId = s(scopedStudents[0]?.branch_id).trim() || currentBranchId;
+      return branches.filter((branch) => s(branch.branch_id).trim() === studentBranchId);
+    }
+
+    return [];
+  }, [branches, currentAccount, currentBranchId, isBranchManager, isStudentRole, isSuperAdmin, scopedStudents]);
+
+  const scopedMockScores = useMemo(
+    () => mockScores.filter((score) => scopedStudentIds.has(s(score.student_id).trim())),
+    [mockScores, scopedStudentIds]
+  );
+
+  const scopedPhysicalRecords = useMemo(
+    () => physicalRecords.filter((record) => scopedStudentIds.has(s(record.student_id).trim())),
+    [physicalRecords, scopedStudentIds]
+  );
+
+  const accessIssueMessage = useMemo(() => {
+    if (!currentAccount) {
+      return "";
+    }
+
+    if (!currentRole) {
+      return "이 계정의 role 값이 유효하지 않습니다. accounts 시트의 role 값을 확인하세요.";
+    }
+
+    if (isBranchManager && !currentBranchId) {
+      return "branch_manager 계정에 branch_id가 없습니다. accounts 시트를 확인하세요.";
+    }
+
+    if (isStudentRole && !currentStudentId) {
+      return "student 계정에 student_id가 없습니다. accounts 시트를 확인하세요.";
+    }
+
+    if (isStudentRole && currentStudentId && scopedStudents.length === 0 && !loading) {
+      return "연결된 student_id의 학생 데이터를 찾을 수 없습니다.";
+    }
+
+    return "";
+  }, [currentAccount, currentBranchId, currentRole, currentStudentId, isBranchManager, isStudentRole, loading, scopedStudents.length]);
+
+  const canAccessStudentRecord = (student: Student | null | undefined) => {
+    if (!student) {
+      return false;
+    }
+
+    if (isSuperAdmin) {
+      return true;
+    }
+
+    if (isBranchManager) {
+      return s(student.branch_id).trim() === currentBranchId;
+    }
+
+    if (isStudentRole) {
+      return s(student.student_id).trim() === currentStudentId;
+    }
+
+    return false;
+  };
+
+  const blockUnauthorizedAction = (message: string) => {
+    alert(message);
+  };
+
+  const selectedStudent = useMemo(
+    () => scopedStudents.find((st) => s(st.student_id) === s(selectedStudentId)) || null,
+    [scopedStudents, selectedStudentId]
+  );
+
+  const selectedStudentMockChartData = useMemo<StudentMockChartPoint[]>(() => {
+    if (!selectedStudent?.student_id) {
+      return [];
+    }
+
+    return getStudentMockChartData({
+      studentId: s(selectedStudent.student_id),
+      mockScores: scopedMockScores,
+      mockExams,
+      debug: true,
+    });
+  }, [mockExams, scopedMockScores, selectedStudent?.student_id]);
+
+  const selectedStudentPhysicalChartData = useMemo<StudentPhysicalChartPoint[]>(() => {
+    if (!selectedStudent?.student_id) {
+      return [];
+    }
+
+    return getStudentPhysicalChartData({
+      studentId: s(selectedStudent.student_id),
+      physicalRecords: scopedPhysicalRecords,
+      physicalTests,
+      debug: true,
+    });
+  }, [physicalTests, scopedPhysicalRecords, selectedStudent?.student_id]);
+
   const branchOptions = useMemo(
-    () => ["ALL", ...branches.map((b) => s(b.branch_id)).filter(Boolean)],
-    [branches]
+    () => (isSuperAdmin ? ["ALL", ...scopedBranches.map((b) => s(b.branch_id)).filter(Boolean)] : scopedBranches.map((b) => s(b.branch_id)).filter(Boolean)),
+    [isSuperAdmin, scopedBranches]
   );
 
   const filteredStudents = useMemo(() => {
     const keyword = search.trim();
 
-    const filtered = students.filter((st) => {
+    const filtered = scopedStudents.filter((st) => {
       const matchesSearch =
         keyword === "" ||
         s(st.name).includes(keyword) ||
@@ -527,7 +802,7 @@ export default function Home() {
         break;
     }
     return sorted;
-  }, [students, search, branchFilter, statusFilter, sortType]);
+  }, [scopedStudents, search, branchFilter, statusFilter, sortType]);
 
   useEffect(() => {
     if (!selectedStudentId && filteredStudents.length > 0) {
@@ -571,8 +846,8 @@ export default function Home() {
   }, [filteredStudents]);
 
   const branchStats = useMemo(() => {
-    return branches.map((branch) => {
-      const studentsInBranch = students.filter((st) => s(st.branch_id) === s(branch.branch_id));
+    return scopedBranches.map((branch) => {
+      const studentsInBranch = scopedStudents.filter((st) => s(st.branch_id) === s(branch.branch_id));
       const count = studentsInBranch.length;
       const avg = count === 0 ? 0 : studentsInBranch.reduce((acc, cur) => acc + getAverageNumber(cur), 0) / count;
       return {
@@ -582,11 +857,11 @@ export default function Home() {
         avg: avg.toFixed(1),
       };
     });
-  }, [branches, students]);
+  }, [scopedBranches, scopedStudents]);
 
   const subjectStats = useMemo(() => {
     const avgOf = (key: keyof Student) => {
-      const values = students
+      const values = scopedStudents
         .map((st) => {
           const rawValue = st[key];
           return getScoreNumber(rawValue as string | number | undefined);
@@ -603,16 +878,16 @@ export default function Home() {
       inquiry2: avgOf("inquiry2_raw"),
       history: avgOf("history_raw"),
     };
-  }, [students]);
+  }, [scopedStudents]);
 
   const topStudents = useMemo(
     () => {
       // Sort all students by average (including those with 0 average) and take top 5
-      const sorted = [...students].sort((a, b) => getAverageNumber(b) - getAverageNumber(a));
+      const sorted = [...scopedStudents].sort((a, b) => getAverageNumber(b) - getAverageNumber(a));
       // Filter to only include students with at least one score
       return sorted.filter((st) => getAverageNumber(st) > 0).slice(0, 5);
     },
-    [students]
+    [scopedStudents]
   );
 
   const selectedAverage = selectedStudent ? getAverageNumber(selectedStudent).toFixed(1) : "-";
@@ -636,6 +911,11 @@ export default function Home() {
   };
 
   const openAddModal = () => {
+    if (!canManageStudents) {
+      blockUnauthorizedAction("학생 추가 권한이 없습니다.");
+      return;
+    }
+
     setModalMode("add");
     setIsModalOpen(true);
   };
@@ -643,14 +923,35 @@ export default function Home() {
   const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const matchedAccount = accounts.find(
-      (account) =>
-        s(account.login_id).trim() === s(loginId).trim() &&
-        s(account.password_hash) === s(loginPassword) &&
-        isTruthy(account.is_active)
+    const trimmedLoginId = s(loginId).trim();
+    const trimmedPassword = s(loginPassword).trim();
+
+    const idMatchedAccounts = accounts.filter(
+      (account) => s(account.login_id).trim() === trimmedLoginId
     );
 
+    if (idMatchedAccounts.length === 0) {
+      if (process.env.NODE_ENV === "development") {
+        console.log("[login-debug] id mismatch", { login_id: trimmedLoginId });
+      }
+      setLoginError("로그인 정보가 올바르지 않거나 비활성 계정입니다.");
+      return;
+    }
+
+    const passwordMatchedAccounts = idMatchedAccounts.filter(
+      (account) => s(account.password_hash).trim() === trimmedPassword
+    );
+
+    if (passwordMatchedAccounts.length === 0) {
+      idMatchedAccounts.forEach((account) => debugLogLoginFailure("password mismatch", account));
+      setLoginError("로그인 정보가 올바르지 않거나 비활성 계정입니다.");
+      return;
+    }
+
+    const matchedAccount = passwordMatchedAccounts.find((account) => isTruthy(account.is_active));
+
     if (!matchedAccount) {
+      passwordMatchedAccounts.forEach((account) => debugLogLoginFailure("inactive", account));
       setLoginError("로그인 정보가 올바르지 않거나 비활성 계정입니다.");
       return;
     }
@@ -659,6 +960,7 @@ export default function Home() {
     setLoginError("");
 
     try {
+      sessionStorage.setItem(PORTAL_ACCOUNT_SESSION_KEY, JSON.stringify(buildAccountSession(matchedAccount)));
       sessionStorage.setItem("portal_login_id", s(matchedAccount.login_id));
     } catch {}
   };
@@ -671,31 +973,59 @@ export default function Home() {
     setBranchFilter("ALL");
 
     try {
+      sessionStorage.removeItem(PORTAL_ACCOUNT_SESSION_KEY);
       sessionStorage.removeItem("portal_login_id");
     } catch {}
+
+    loadPortalData({ mode: "auth" });
   };
 
   const openEditModal = () => {
+    if (!canManageStudents) {
+      blockUnauthorizedAction("학생 수정 권한이 없습니다.");
+      return;
+    }
+
     if (!selectedStudent) {
       alert("수정할 학생을 먼저 선택하세요.");
       return;
     }
+
+    if (!canAccessStudentRecord(selectedStudent)) {
+      blockUnauthorizedAction("이 학생 데이터는 수정할 수 없습니다.");
+      return;
+    }
+
     setModalMode("edit");
     setIsModalOpen(true);
   };
 
-  const handleModalSave = async (student: Student) => {
-    if (!student.name || !student.school_name || !student.grade || !student.branch_id) {
+  const handleModalSave = async (student: Student): Promise<Student | null> => {
+    if (!canManageStudents) {
+      blockUnauthorizedAction("학생 저장 권한이 없습니다.");
+      return null;
+    }
+
+    const nextStudentInput = isBranchManager
+      ? { ...student, branch_id: currentBranchId }
+      : student;
+
+    if (modalMode === "edit" && !canAccessStudentRecord(selectedStudent)) {
+      blockUnauthorizedAction("이 학생 데이터는 저장할 수 없습니다.");
+      return null;
+    }
+
+    if (!nextStudentInput.name || !nextStudentInput.school_name || !nextStudentInput.grade || !nextStudentInput.branch_id) {
       alert("이름, 학교, 학년, 지점은 필수입니다.");
-      return;
+      return null;
     }
 
     try {
       setSaving(true);
       const existingStudent = rawStudents.find(
-        (item) => s(item.student_id).trim() === s(student.student_id).trim()
+        (item) => s(item.student_id).trim() === s(nextStudentInput.student_id).trim()
       );
-      const nextStudentRow = buildStudentSheetRow(student, existingStudent);
+      const nextStudentRow = buildStudentSheetRow(nextStudentInput, existingStudent);
 
       await savePortalRow({
         sheetName: "students",
@@ -719,31 +1049,51 @@ export default function Home() {
         return [...prev, nextStudentRow];
       });
       setSelectedStudentId(s(nextStudentRow.student_id));
+      return nextStudentRow;
     } catch (error) {
       console.error(error);
       alert("저장 중 오류가 발생했습니다.");
+      throw error;
     } finally {
       setSaving(false);
     }
   };
 
-  const handleExamScoreSave = async (examId: string, scores: Partial<Student>) => {
-    if (!selectedStudent || !selectedStudent.student_id) {
+  const handleExamScoreSave = async (
+    examId: string,
+    scores: Partial<Student>,
+    targetStudent?: Pick<Student, "student_id" | "name" | "branch_id">
+  ) => {
+    if (!canManageStudents) {
+      throw new Error("시험 성적 저장 권한이 없습니다.");
+    }
+
+    const studentContext = {
+      student_id: s(targetStudent?.student_id || selectedStudent?.student_id).trim(),
+      name: s(targetStudent?.name || selectedStudent?.name).trim(),
+      branch_id: s(targetStudent?.branch_id || selectedStudent?.branch_id).trim(),
+    };
+
+    if (!studentContext.student_id) {
       throw new Error("학생 정보가 없어 시험 성적만 저장할 수 없습니다.");
     }
 
-    const existingScore = mockScores.find(
+    if (!canAccessStudentRecord(selectedStudent) && !targetStudent) {
+      throw new Error("이 학생의 시험 성적은 저장할 수 없습니다.");
+    }
+
+    const existingScore = scopedMockScores.find(
       (item) =>
-        s(item.student_id).trim() === s(selectedStudent.student_id).trim() &&
+        s(item.student_id).trim() === studentContext.student_id &&
         s(item.exam_id).trim() === s(examId).trim()
     );
     const now = new Date().toISOString();
     const nextScoreRow: MockScore = {
       ...existingScore,
-      score_id: s(existingScore?.score_id).trim() || buildGeneratedId(`score-${selectedStudent.student_id}-${examId}`),
-      student_id: s(selectedStudent.student_id).trim(),
-      student_name: s(selectedStudent.name).trim(),
-      branch_id: s(selectedStudent.branch_id).trim(),
+      score_id: s(existingScore?.score_id).trim() || buildGeneratedId(`score-${studentContext.student_id}-${examId}`),
+      student_id: studentContext.student_id,
+      student_name: studentContext.name,
+      branch_id: studentContext.branch_id,
       exam_id: s(examId).trim(),
       created_at: s(existingScore?.created_at).trim() || now,
       updated_at: now,
@@ -775,7 +1125,15 @@ export default function Home() {
   };
 
   const handlePhysicalRecordSave = async (record: PhysicalRecord) => {
-    const existingRecord = physicalRecords.find(
+    if (!canManageStudents) {
+      throw new Error("실기 기록 저장 권한이 없습니다.");
+    }
+
+    if (!selectedStudent || !canAccessStudentRecord(selectedStudent)) {
+      throw new Error("이 학생의 실기 기록은 저장할 수 없습니다.");
+    }
+
+    const existingRecord = scopedPhysicalRecords.find(
       (item) =>
         s(item.student_id).trim() === s(record.student_id).trim() &&
         s(item.test_id).trim() === s(record.test_id).trim()
@@ -821,6 +1179,16 @@ export default function Home() {
   };
 
   const handleDelete = async () => {
+    if (!canManageStudents) {
+      blockUnauthorizedAction("학생 삭제 권한이 없습니다.");
+      return;
+    }
+
+    if (!canAccessStudentRecord(selectedStudent)) {
+      blockUnauthorizedAction("이 학생 데이터는 삭제할 수 없습니다.");
+      return;
+    }
+
     alert("현재 구글시트 연동 단계에서는 삭제 기능이 연결되어 있지 않습니다.");
   };
 
@@ -1034,29 +1402,69 @@ export default function Home() {
     );
   }
 
+  if (accessIssueMessage) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={{ maxWidth: 520, margin: "80px auto", background: "#ffffff", borderRadius: 18, padding: 28, boxShadow: "0 18px 42px rgba(15, 23, 42, 0.12)", border: "1px solid #dbe7f3" }}>
+            <p style={styles.badge}>권한 확인 필요</p>
+            <h1 style={{ margin: "12px 0 8px", fontSize: 28, color: "#0f172a" }}>접근 불가</h1>
+            <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>{accessIssueMessage}</p>
+            <div style={{ marginTop: 20 }}>
+              <button style={styles.secondaryButton} onClick={handleLogout}>
+                로그아웃
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const roleTitle = isStudentRole
+    ? "학생 화면"
+    : isBranchManager
+    ? "지점관리자 화면"
+    : "최고관리자 화면";
+  const dashboardBadge = isStudentRole ? "FINAL 학생 포털" : "FINAL 관리자 시스템";
+  const dashboardTitle = isStudentRole
+    ? "내 성적 대시보드"
+    : isBranchManager
+    ? "지점 학생 대시보드"
+    : "학생 성적 대시보드";
+  const dashboardSubtitle = isStudentRole
+    ? "본인 성적과 실기 기록만 조회할 수 있습니다."
+    : isBranchManager
+    ? "내 지점 학생, 성적, 실기 기록만 조회하고 관리합니다."
+    : "지점, 학생정보, 성적, 평균, 통계를 한 화면에서 관리합니다.";
+
   return (
     <main style={styles.page}>
       <div style={styles.container}>
         <header style={styles.header}>
           <div>
-            <p style={styles.badge}>FINAL 관리자 시스템</p>
-            <h1 style={styles.title}>학생 성적 대시보드</h1>
-            <p style={styles.subtitle}>지점, 학생정보, 성적, 평균, 통계를 한 화면에서 관리합니다.</p>
+            <p style={styles.badge}>{dashboardBadge}</p>
+            <h1 style={styles.title}>{dashboardTitle}</h1>
+            <p style={styles.subtitle}>{dashboardSubtitle}</p>
           </div>
           <div style={styles.headerActions}>
             <div style={{ fontSize: 13, color: "#475569", textAlign: "right" }}>
               <div>{s(currentAccount.name) || s(currentAccount.login_id)}</div>
-              <div>{s(currentAccount.role) || "user"}</div>
+              <div>{roleTitle}</div>
             </div>
-            <a href="/branches" style={styles.navLink}>
-              지점 관리 →
-            </a>
+            {isSuperAdmin ? (
+              <a href="/branches" style={styles.navLink}>
+                지점 관리 →
+              </a>
+            ) : null}
             <button style={styles.secondaryButton} onClick={handleLogout}>
               로그아웃
             </button>
           </div>
         </header>
 
+        {!isStudentRole ? (
+          <>
         <section style={styles.summaryGrid}>
           <div style={styles.summaryCard}>
             <span style={styles.summaryLabel}>표시 학생 수</span>
@@ -1158,13 +1566,15 @@ export default function Home() {
             style={styles.searchInput}
           />
 
-          <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} style={styles.select}>
-            {branchOptions.map((branch) => (
-              <option key={branch} value={branch}>
-                {branch === "ALL" ? "전체 지점" : getBranchLabel(branch)}
-              </option>
-            ))}
-          </select>
+          {isSuperAdmin ? (
+            <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} style={styles.select}>
+              {branchOptions.map((branch) => (
+                <option key={branch} value={branch}>
+                  {branch === "ALL" ? "전체 지점" : getBranchLabel(branch)}
+                </option>
+              ))}
+            </select>
+          ) : null}
 
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={styles.select}>
             <option value="ALL">전체 상태</option>
@@ -1182,42 +1592,51 @@ export default function Home() {
             <option value="englishDesc">영어 높은순</option>
           </select>
         </section>
+          </>
+        ) : null}
 
-        {selectedStudent && (
-          <section style={styles.chartSection}>
-            <div style={styles.chartHeader}>
-              <h3 style={styles.chartTitle}>선택 학생 성적 그래프</h3>
-              <p style={styles.chartDesc}>{s(selectedStudent.name)} 학생의 주요 과목 점수</p>
-            </div>
+        {!isStudentRole && selectedStudent ? (
+          <StudentChartSection
+            selectedStudent={selectedStudent}
+            getScoreNumber={getScoreNumber}
+            getBarWidth={getBarWidth}
+            s={s}
+          />
+        ) : null}
 
-            <div style={styles.chartCard}>
-              {[
-                ["국어", selectedStudent.korean_raw, styles.koreanBar],
-                ["수학", selectedStudent.math_raw, styles.mathBar],
-                ["영어", selectedStudent.english_raw, styles.englishBar],
-                ["탐구1", selectedStudent.inquiry1_raw, styles.koreanBar],
-                ["탐구2", selectedStudent.inquiry2_raw, styles.mathBar],
-              ].map(([label, value, barStyle]) => (
-                <div key={String(label)} style={styles.chartRow}>
-                  <div style={styles.chartLabelWrap}>
-                    <span style={styles.chartLabel}>{String(label)}</span>
-                    <span style={styles.chartValue}>{s(value) || "-"}</span>
-                  </div>
-                  <div style={styles.chartTrack}>
-                    <div
-                      style={{
-                        ...styles.chartBar,
-                        ...(barStyle as React.CSSProperties),
-                        width: getBarWidth(value as string | number | undefined),
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+        {isStudentRole ? (
+          <section style={styles.studentViewWrap}>
+            {selectedStudent ? (
+              <StudentChartSection
+                selectedStudent={selectedStudent}
+                getScoreNumber={getScoreNumber}
+                getBarWidth={getBarWidth}
+                s={s}
+              />
+            ) : null}
+            <div style={styles.detailCardStatic}>
+              {selectedStudent ? (
+                <StudentDetailPanel
+                  student={selectedStudent}
+                  branches={scopedBranches}
+                  mockChartData={selectedStudentMockChartData}
+                  physicalChartData={selectedStudentPhysicalChartData}
+                  canManage={false}
+                  sticky={false}
+                  onEdit={openEditModal}
+                  onDelete={handleDelete}
+                  onShowDetail={() => setIsDetailPopupOpen(true)}
+                  getAverageNumber={getAverageNumber}
+                  getGradeBadgeStyle={getGradeBadgeStyle}
+                  getBranchLabel={getBranchLabel}
+                  s={s}
+                />
+              ) : (
+                <div style={styles.stateBox}>연결된 학생 정보를 찾을 수 없습니다.</div>
+              )}
             </div>
           </section>
-        )}
-
+        ) : (
         <section style={styles.contentGrid}>
           <div style={styles.leftPanel}>
             <div style={styles.stickyActionBar}>
@@ -1254,9 +1673,9 @@ export default function Home() {
                 <button style={styles.navButton} onClick={handlePrintSelected} disabled={!selectedStudent}>
                   학생 인쇄
                 </button>
-                <button style={styles.editButton} onClick={openEditModal}>수정</button>
-                <button style={styles.deleteButton} onClick={handleDelete}>삭제</button>
-                <button style={styles.addButton} onClick={openAddModal}>+ 학생 추가</button>
+                {canManageStudents ? <button style={styles.editButton} onClick={openEditModal}>수정</button> : null}
+                {canManageStudents ? <button style={styles.deleteButton} onClick={handleDelete}>삭제</button> : null}
+                {canManageStudents ? <button style={styles.addButton} onClick={openAddModal}>+ 학생 추가</button> : null}
               </div>
             </div>
 
@@ -1323,7 +1742,11 @@ export default function Home() {
             {selectedStudent ? (
               <StudentDetailPanel
                 student={selectedStudent}
-                branches={branches}
+                branches={scopedBranches}
+                mockChartData={selectedStudentMockChartData}
+                physicalChartData={selectedStudentPhysicalChartData}
+                canManage={canManageStudents}
+                sticky={true}
                 onEdit={openEditModal}
                 onDelete={handleDelete}
                 onShowDetail={() => setIsDetailPopupOpen(true)}
@@ -1337,6 +1760,7 @@ export default function Home() {
             )}
           </div>
         </section>
+        )}
       </div>
 
       {isDetailPopupOpen && selectedStudent && (
@@ -1348,7 +1772,11 @@ export default function Home() {
             </div>
             <StudentDetailPanel
               student={selectedStudent}
-              branches={branches}
+              branches={scopedBranches}
+              mockChartData={selectedStudentMockChartData}
+              physicalChartData={selectedStudentPhysicalChartData}
+              canManage={canManageStudents}
+              sticky={false}
               onEdit={() => {
                 setIsDetailPopupOpen(false);
                 openEditModal();
@@ -1372,20 +1800,22 @@ export default function Home() {
         </div>
       )}
 
-      <StudentModal
-        isOpen={isModalOpen}
-        mode={modalMode}
-        student={modalMode === "edit" ? selectedStudent : null}
-        branches={branches}
-        mockExams={mockExams}
-        physicalTests={physicalTests}
-        physicalRecords={physicalRecords}
-        saving={saving}
-        onClose={() => setIsModalOpen(false)}
-        onSave={handleModalSave}
-        onSaveExamScores={handleExamScoreSave}
-        onSavePhysicalRecord={handlePhysicalRecordSave}
-      />
+      {canManageStudents ? (
+        <StudentModal
+          isOpen={isModalOpen}
+          mode={modalMode}
+          student={modalMode === "edit" ? selectedStudent : null}
+          branches={scopedBranches}
+          mockExams={mockExams}
+          physicalTests={physicalTests}
+          physicalRecords={scopedPhysicalRecords}
+          saving={saving}
+          onClose={() => setIsModalOpen(false)}
+          onSave={handleModalSave}
+          onSaveExamScores={handleExamScoreSave}
+          onSavePhysicalRecord={handlePhysicalRecordSave}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1400,6 +1830,16 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: {
     maxWidth: "1440px",
     margin: "0 auto",
+  },
+  studentViewWrap: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 860px)",
+    justifyContent: "center",
+    gap: "20px",
+    alignItems: "start",
+  },
+  detailCardStatic: {
+    background: "transparent",
   },
   header: {
     marginBottom: "20px",

@@ -1,11 +1,25 @@
 "use client";
 
 import React from "react";
-import type { Student, Branch } from "@/lib/dataService";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import type { Student, Branch, StudentMockChartPoint, StudentPhysicalChartPoint } from "@/lib/dataService";
 
 interface StudentDetailPanelProps {
   student: Student | null;
   branches: Branch[];
+  mockChartData?: StudentMockChartPoint[];
+  physicalChartData?: StudentPhysicalChartPoint[];
+  canManage?: boolean;
+  sticky?: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onShowDetail: () => void;
@@ -18,6 +32,10 @@ interface StudentDetailPanelProps {
 export function StudentDetailPanel({
   student,
   branches,
+  mockChartData = [],
+  physicalChartData = [],
+  canManage = true,
+  sticky = true,
   onEdit,
   onDelete,
   onShowDetail,
@@ -32,8 +50,8 @@ export function StudentDetailPanel({
       padding: "24px",
       borderRadius: "20px",
       boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
-      position: "sticky",
-      top: "20px",
+      position: sticky ? "sticky" : "relative",
+      top: sticky ? "20px" : undefined,
     },
     stateBox: {
       background: "#f8fafc",
@@ -122,6 +140,7 @@ export function StudentDetailPanel({
       display: "flex",
       flexDirection: "column",
       gap: "12px",
+      marginTop: "20px",
     },
     subjectTitle: {
       margin: "0 0 4px 0",
@@ -141,6 +160,34 @@ export function StudentDetailPanel({
       fontSize: "14px",
       color: "#334155",
       marginBottom: "8px",
+    },
+    section: {
+      marginTop: "20px",
+    },
+    sectionTitle: {
+      margin: "0 0 12px 0",
+      fontSize: "18px",
+      fontWeight: 900,
+      color: "#0f172a",
+    },
+    chartCard: {
+      background: "#f8fafc",
+      borderRadius: "16px",
+      padding: "16px",
+      border: "1px solid #e2e8f0",
+    },
+    chartWrap: {
+      width: "100%",
+      height: "280px",
+    },
+    chartStateBox: {
+      background: "#f8fafc",
+      borderRadius: "14px",
+      padding: "24px",
+      fontSize: "14px",
+      color: "#64748b",
+      textAlign: "center",
+      border: "1px dashed #cbd5e1",
     },
     actionButtons: {
       display: "flex",
@@ -289,6 +336,31 @@ export function StudentDetailPanel({
       </div>
 
       <div style={styles.section}>
+        <h3 style={styles.sectionTitle}>모의고사 추이</h3>
+        {mockChartData.length === 0 ? (
+          <div style={styles.chartStateBox}>표시할 데이터가 없습니다.</div>
+        ) : (
+          <div style={styles.chartCard}>
+            <div style={styles.chartWrap}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={mockChartData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} interval={0} angle={-18} textAnchor="end" height={56} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: "#64748b" }} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="korean" name="국어" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="math" name="수학" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="english" name="영어" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="average" name="평균" stroke="#7c3aed" strokeWidth={3} dot={{ r: 4 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={styles.section}>
         <h3 style={styles.sectionTitle}>체력 검사</h3>
         <div style={styles.subjectBox}>
           <div style={styles.subjectRow}>
@@ -328,16 +400,46 @@ export function StudentDetailPanel({
         </div>
       </div>
 
+      <div style={styles.section}>
+        <h3 style={styles.sectionTitle}>실기 추이</h3>
+        {physicalChartData.length === 0 ? (
+          <div style={styles.chartStateBox}>표시할 데이터가 없습니다.</div>
+        ) : (
+          <div style={styles.chartCard}>
+            <div style={styles.chartWrap}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={physicalChartData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} interval={0} angle={-18} textAnchor="end" height={56} />
+                  <YAxis tick={{ fontSize: 12, fill: "#64748b" }} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="total_score" name="총점" stroke="#dc2626" strokeWidth={3} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="back_strength" name="배근력" stroke="#2563eb" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="run_10m" name="10m왕복달리기" stroke="#0f766e" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="standing_jump" name="제자리멀리뛰기" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="run_20m" name="20m왕복달리기" stroke="#7c3aed" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div style={styles.actionButtons}>
         <button style={styles.detailButton} onClick={onShowDetail}>
           상세보기
         </button>
-        <button style={styles.editButton} onClick={onEdit}>
-          수정
-        </button>
-        <button style={styles.deleteButton} onClick={onDelete}>
-          삭제
-        </button>
+        {canManage ? (
+          <>
+            <button style={styles.editButton} onClick={onEdit}>
+              수정
+            </button>
+            <button style={styles.deleteButton} onClick={onDelete}>
+              삭제
+            </button>
+          </>
+        ) : null}
       </div>
     </div>
   );
