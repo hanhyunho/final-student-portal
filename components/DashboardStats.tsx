@@ -31,10 +31,10 @@ export function DashboardStats({ summary, quickStats }: DashboardStatsProps) {
       marginBottom: "20px",
     },
     summaryCard: {
-      background: portalTheme.gradients.card,
+      background: "#ffffff",
       borderRadius: portalTheme.radius.md,
       padding: "18px 20px",
-      boxShadow: portalTheme.shadows.card,
+      boxShadow: "0 10px 24px rgba(0,0,0,0.06)",
       border: `1px solid ${portalTheme.colors.line}`,
       borderLeft: `4px solid ${portalTheme.colors.primary}`,
     },

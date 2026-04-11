@@ -220,7 +220,7 @@ export function AdminDashboard({
             top: "12px",
             zIndex: 10,
             background: "rgba(255, 255, 255, 0.94)",
-            backdropFilter: "blur(14px)",
+            backdropFilter: "blur(4px)",
             border: `1px solid ${portalTheme.colors.line}`,
             borderRadius: portalTheme.radius.md,
             boxShadow: portalTheme.shadows.soft,

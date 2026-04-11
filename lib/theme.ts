@@ -42,7 +42,7 @@ export const portalTheme = {
     pageOverlay: "linear-gradient(180deg, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.24) 100%)",
     card: "linear-gradient(180deg, #ffffff 0%, #fcfcfd 100%)",
     cardTint: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
-    header: "linear-gradient(90deg, #111827 0%, #1f2937 100%)",
+    header: "linear-gradient(135deg, #111827 0%, #1f2937 50%, #374151 100%)",
     primaryButton: "linear-gradient(135deg, #ef4444 0%, #e11d48 100%)",
     successButton: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
     warningButton: "linear-gradient(135deg, #e11d48 0%, #be123c 100%)",

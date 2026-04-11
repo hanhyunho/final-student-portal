@@ -2271,7 +2271,7 @@ export default function Home() {
             <p style={styles.subtitle}>{dashboardSubtitle}</p>
           </div>
           <div style={styles.headerActions}>
-            <div style={{ fontSize: 13, color: "#475569", textAlign: "right" }}>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", textAlign: "right" }}>
               <div>{s(currentAccount.name) || s(currentAccount.login_id)}</div>
               <div>{roleTitle}</div>
             </div>
@@ -2432,7 +2432,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: "24px 26px",
     borderRadius: "24px",
     background: portalTheme.gradients.header,
-    border: `1px solid ${portalTheme.colors.line}`,
+    border: "1px solid rgba(255,255,255,0.08)",
     boxShadow: portalTheme.shadows.card,
   },
   navLink: {
@@ -2456,7 +2456,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   examLabel: {
     fontSize: "14px",
     fontWeight: 600,
-    color: portalTheme.colors.textPrimary,
+    color: "rgba(255,255,255,0.65)",
   },
   examSelect: {
     padding: "8px 12px",
@@ -2470,8 +2470,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: "inline-block",
     padding: "7px 12px",
     borderRadius: "999px",
-    background: portalTheme.colors.primarySoft,
-    color: portalTheme.colors.primary,
+    background: "rgba(255,255,255,0.08)",
+    color: "rgba(255,255,255,0.65)",
     fontSize: "12px",
     fontWeight: 700,
     marginBottom: "12px",
@@ -2479,13 +2479,13 @@ const styles: { [key: string]: React.CSSProperties } = {
   title: {
     margin: "0 0 10px 0",
     fontSize: "42px",
-    fontWeight: 900,
-    color: portalTheme.colors.textStrong,
-    letterSpacing: "-0.5px",
+    fontWeight: 700,
+    color: "#ffffff",
+    letterSpacing: "-0.02em",
   },
   subtitle: {
     margin: 0,
-    color: portalTheme.colors.textMuted,
+    color: "rgba(255,255,255,0.85)",
     fontSize: "15px",
     lineHeight: 1.6,
   },
