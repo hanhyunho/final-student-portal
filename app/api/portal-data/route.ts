@@ -1,5 +1,8 @@
-import type { Branch, MockScore, PhysicalRecord, Student } from "@/lib/dataService";
-import { getAllPortalData } from "@/lib/sheets";
+import type { Branch, Student } from "@/lib/dataService";
+import {
+  getBranchesSheet,
+  getStudentsSheet,
+} from "@/lib/sheets";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +18,87 @@ function normalizeRole(value: unknown) {
   }
 
   return "";
+}
+
+function normalizeCompareText(value: unknown) {
+  return s(value).toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeBranchToken(value: unknown) {
+  return s(value).toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeBranch(branch: Branch): Branch {
+  const branchId = s(branch.branch_id) || s(branch.branch_code) || s(branch.branch_name);
+  const branchName = s(branch.branch_name) || branchId;
+  const branchCode = s(branch.branch_code);
+
+  return {
+    ...branch,
+    branch_id: branchId,
+    branch_name: branchName,
+    branch_code: branchCode || undefined,
+  };
+}
+
+function normalizeBranches(branches: Branch[]) {
+  const uniqueBranches = new Map<string, Branch>();
+
+  branches.forEach((branch) => {
+    const normalizedBranch = normalizeBranch(branch);
+    const branchId = s(normalizedBranch.branch_id);
+
+    if (!branchId || uniqueBranches.has(branchId)) {
+      return;
+    }
+
+    uniqueBranches.set(branchId, normalizedBranch);
+  });
+
+  return Array.from(uniqueBranches.values());
+}
+
+function resolveBranchId(branches: Branch[], candidate: unknown) {
+  const rawCandidate = s(candidate);
+  const normalizedCandidate = normalizeBranchToken(rawCandidate);
+
+  if (!normalizedCandidate) {
+    return "";
+  }
+
+  const matchedBranch = branches.find((branch) => {
+    return [branch.branch_id, branch.branch_code, branch.branch_name]
+      .map(normalizeBranchToken)
+      .includes(normalizedCandidate);
+  });
+
+  return matchedBranch ? s(matchedBranch.branch_id) : rawCandidate;
+}
+
+function getRowBranchToken(row: { branch_id?: string }) {
+  const source = row as Record<string, unknown>;
+
+  return (
+    s(source.branch_id) ||
+    s(source.branch_name) ||
+    s(source.campus) ||
+    s(source.campus_name)
+  );
+}
+
+function normalizeBranchScopedRows<T extends { branch_id?: string }>(rows: T[], branches: Branch[]) {
+  return rows.map((row) => {
+    const branchId = resolveBranchId(branches, getRowBranchToken(row));
+
+    if (!branchId) {
+      return row;
+    }
+
+    return {
+      ...row,
+      branch_id: branchId,
+    };
+  });
 }
 
 function filterByBranchId<T extends { branch_id?: string }>(rows: T[], branchId: string) {
@@ -43,99 +127,118 @@ function filterBranchesForStudent(branches: Branch[], students: Student[], fallb
   return branches.filter((branch) => s(branch.branch_id) === effectiveBranchId);
 }
 
+function matchesBranchScope(student: Student, branchId: string) {
+  return !branchId || s(student.branch_id) === branchId;
+}
+
+function resolveStudentForAccount(
+  students: Student[],
+  options: {
+    studentId: string;
+    loginId: string;
+    accountName: string;
+    branchId: string;
+  }
+) {
+  const { studentId, loginId, accountName, branchId } = options;
+
+  const exactStudent = students.find((student) => s(student.student_id) === studentId && matchesBranchScope(student, branchId));
+
+  if (exactStudent) {
+    return exactStudent;
+  }
+
+  const candidateTokens = [loginId, accountName].map(normalizeCompareText).filter(Boolean);
+
+  if (candidateTokens.length === 0) {
+    return null;
+  }
+
+  const matchedStudents = students.filter((student) => {
+    if (!matchesBranchScope(student, branchId)) {
+      return false;
+    }
+
+    const studentTokens = [student.student_id, student.student_no, student.name]
+      .map(normalizeCompareText)
+      .filter(Boolean);
+
+    return candidateTokens.some((token) => studentTokens.includes(token));
+  });
+
+  return matchedStudents[0] || null;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const mode = s(searchParams.get("mode")).toLowerCase();
     const role = normalizeRole(searchParams.get("role"));
-    const branchId = s(searchParams.get("branch_id"));
+    const branchToken = s(searchParams.get("branch_id"));
     const studentId = s(searchParams.get("student_id"));
-    const data = await getAllPortalData();
+    const loginId = s(searchParams.get("login_id"));
+    const accountName = s(searchParams.get("account_name"));
 
-    if (mode === "auth") {
-      return Response.json({
-        success: true,
-        branches: [],
-        accounts: data.accounts,
-        students: [],
-        mockExams: [],
-        mockScores: [],
-        physicalTests: [],
-        physicalRecords: [],
-      });
-    }
+    const [branchRows, studentRows] = await Promise.all([
+      getBranchesSheet(),
+      getStudentsSheet(),
+    ]);
+    const branches = normalizeBranches(branchRows);
+    const branchId = resolveBranchId(branches, branchToken);
+    const students = normalizeBranchScopedRows<Student>(studentRows, branches);
 
     if (role === "super_admin") {
       return Response.json({
+        ok: true,
         success: true,
-        branches: data.branches,
-        accounts: [],
-        students: data.students,
-        mockExams: data.mockExams,
-        mockScores: data.mockScores,
-        physicalTests: data.physicalTests,
-        physicalRecords: data.physicalRecords,
+        branches,
+        students,
       });
     }
 
     if (role === "branch_manager") {
-      const scopedBranches = filterByBranchId(data.branches, branchId);
-      const scopedStudents = filterByBranchId(data.students, branchId);
-      const scopedMockScores = filterByBranchId<MockScore>(data.mockScores, branchId);
-      const scopedPhysicalRecords = filterByBranchId<PhysicalRecord>(data.physicalRecords, branchId);
+      const scopedBranches = filterByBranchId(branches, branchId);
+      const scopedStudents = filterByBranchId(students, branchId);
 
       return Response.json({
+        ok: true,
         success: true,
         branches: scopedBranches,
-        accounts: [],
         students: scopedStudents,
-        mockExams: data.mockExams,
-        mockScores: scopedMockScores,
-        physicalTests: data.physicalTests,
-        physicalRecords: scopedPhysicalRecords,
       });
     }
 
     if (role === "student") {
-      const scopedStudents = filterByStudentId<Student>(data.students, studentId);
-      const scopedMockScores = filterByStudentId<MockScore>(data.mockScores, studentId);
-      const scopedPhysicalRecords = filterByStudentId<PhysicalRecord>(data.physicalRecords, studentId);
-      const scopedBranches = filterBranchesForStudent(data.branches, scopedStudents, branchId);
+      const matchedStudent = resolveStudentForAccount(students, {
+        studentId,
+        loginId,
+        accountName,
+        branchId,
+      });
+      const scopedStudents = matchedStudent ? [matchedStudent] : filterByStudentId<Student>(students, studentId);
+      const scopedBranches = filterBranchesForStudent(branches, scopedStudents, branchId);
 
       return Response.json({
+        ok: true,
         success: true,
         branches: scopedBranches,
-        accounts: [],
         students: scopedStudents,
-        mockExams: data.mockExams,
-        mockScores: scopedMockScores,
-        physicalTests: data.physicalTests,
-        physicalRecords: scopedPhysicalRecords,
       });
     }
 
     return Response.json({
+      ok: true,
       success: true,
       branches: [],
-      accounts: [],
       students: [],
-      mockExams: [],
-      mockScores: [],
-      physicalTests: [],
-      physicalRecords: [],
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return Response.json(
       {
+        ok: false,
         success: false,
-        error: error?.message || String(error),
+        error: error instanceof Error ? error.message : String(error),
         branches: [],
-        accounts: [],
         students: [],
-        mockExams: [],
-        mockScores: [],
-        physicalTests: [],
-        physicalRecords: [],
       },
       { status: 500 }
     );

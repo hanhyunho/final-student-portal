@@ -26,6 +26,10 @@ function normalizeCellValue(value: string) {
   return value.replace(/\r/g, "").trim();
 }
 
+function isValidStudentRow(row: Record<string, string>) {
+  return !!normalizeCellValue(row.student_id ?? "") && !!normalizeCellValue(row.name ?? "");
+}
+
 export function parseCsv(text: string): Array<Record<string, string>> {
   const rows: string[][] = [];
   let currentRow: string[] = [];
@@ -116,7 +120,8 @@ export async function getAccountsSheet() {
 }
 
 export async function getStudentsSheet() {
-  return asRows<Student>(await fetchSheetRows("students"));
+  const rows = await fetchSheetRows("students");
+  return asRows<Student>(rows.filter(isValidStudentRow));
 }
 
 export async function getMockExamsSheet() {

@@ -2,20 +2,21 @@
 
 import React from "react";
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
   Legend,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import type { Student, Branch, StudentMockChartPoint, StudentPhysicalChartPoint } from "@/lib/dataService";
+import type { Student, StudentMockChartPoint, StudentPhysicalChartPoint } from "@/lib/dataService";
+import { EmptyState } from "@/components/EmptyState";
+import { portalButtonStyles, portalTheme } from "@/lib/theme";
 
 interface StudentDetailPanelProps {
   student: Student | null;
-  branches: Branch[];
   mockChartData?: StudentMockChartPoint[];
   physicalChartData?: StudentPhysicalChartPoint[];
   canManage?: boolean;
@@ -31,7 +32,6 @@ interface StudentDetailPanelProps {
 
 export function StudentDetailPanel({
   student,
-  branches,
   mockChartData = [],
   physicalChartData = [],
   canManage = true,
@@ -46,27 +46,21 @@ export function StudentDetailPanel({
 }: StudentDetailPanelProps) {
   const styles: { [key: string]: React.CSSProperties } = {
     detailCard: {
-      background: "#ffffff",
+      background: portalTheme.gradients.card,
       padding: "24px",
-      borderRadius: "20px",
-      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
+      borderRadius: portalTheme.radius.md,
+      boxShadow: portalTheme.shadows.card,
+      border: `1px solid ${portalTheme.colors.line}`,
+      borderLeft: `4px solid ${portalTheme.colors.primary}`,
       position: sticky ? "sticky" : "relative",
       top: sticky ? "20px" : undefined,
-    },
-    stateBox: {
-      background: "#f8fafc",
-      borderRadius: "14px",
-      padding: "24px",
-      fontSize: "14px",
-      color: "#64748b",
-      textAlign: "center",
     },
     selectedBadge: {
       display: "inline-block",
       padding: "7px 12px",
-      borderRadius: "999px",
-      background: "#dbeafe",
-      color: "#1d4ed8",
+      borderRadius: portalTheme.radius.pill,
+      background: portalTheme.colors.primarySoft,
+      color: portalTheme.colors.primary,
       fontSize: "12px",
       fontWeight: 700,
       marginBottom: "14px",
@@ -75,12 +69,12 @@ export function StudentDetailPanel({
       margin: "0 0 8px 0",
       fontSize: "34px",
       fontWeight: 900,
-      color: "#0f172a",
+      color: portalTheme.colors.textStrong,
       letterSpacing: "-0.5px",
     },
     detailSub: {
       margin: "0 0 20px 0",
-      color: "#64748b",
+      color: portalTheme.colors.textMuted,
       fontSize: "14px",
     },
     scoreGrid: {
@@ -90,37 +84,39 @@ export function StudentDetailPanel({
       marginBottom: "20px",
     },
     scoreBox: {
-      background: "#f8fafc",
-      borderRadius: "16px",
+      background: portalTheme.colors.surfacePanel,
+      borderRadius: portalTheme.radius.md,
       padding: "16px",
+      border: `1px solid ${portalTheme.colors.line}`,
       minHeight: "98px",
       display: "flex",
       flexDirection: "column",
       justifyContent: "space-between",
+      boxShadow: portalTheme.shadows.soft,
     },
     scoreLabel: {
       display: "block",
       fontSize: "12px",
-      color: "#64748b",
+      color: portalTheme.colors.textMuted,
       marginBottom: "8px",
     },
     scoreValue: {
       fontSize: "26px",
       fontWeight: 900,
-      color: "#0f172a",
+      color: portalTheme.colors.textStrong,
     },
     gradeBadge: {
       display: "inline-block",
       width: "fit-content",
       padding: "5px 9px",
-      borderRadius: "999px",
+      borderRadius: portalTheme.radius.pill,
       fontSize: "12px",
       fontWeight: 700,
       marginTop: "8px",
     },
     infoSection: {
-      borderTop: "1px solid #e2e8f0",
-      borderBottom: "1px solid #e2e8f0",
+      borderTop: `1px solid ${portalTheme.colors.line}`,
+      borderBottom: `1px solid ${portalTheme.colors.line}`,
       padding: "16px 0",
       marginBottom: "20px",
     },
@@ -130,11 +126,11 @@ export function StudentDetailPanel({
       gap: "12px",
       fontSize: "14px",
       marginBottom: "10px",
-      color: "#334155",
+      color: portalTheme.colors.textPrimary,
     },
     infoTitle: {
       fontWeight: 700,
-      color: "#64748b",
+      color: portalTheme.colors.textMuted,
     },
     subjectPanel: {
       display: "flex",
@@ -146,19 +142,21 @@ export function StudentDetailPanel({
       margin: "0 0 4px 0",
       fontSize: "18px",
       fontWeight: 900,
-      color: "#0f172a",
+      color: portalTheme.colors.textStrong,
     },
     subjectBox: {
-      background: "#f8fafc",
-      borderRadius: "16px",
+      background: portalTheme.colors.surfacePanel,
+      borderRadius: portalTheme.radius.md,
       padding: "16px",
+      border: `1px solid ${portalTheme.colors.line}`,
+      boxShadow: portalTheme.shadows.soft,
     },
     subjectRow: {
       display: "flex",
       justifyContent: "space-between",
       gap: "12px",
       fontSize: "14px",
-      color: "#334155",
+      color: portalTheme.colors.textPrimary,
       marginBottom: "8px",
     },
     section: {
@@ -168,26 +166,18 @@ export function StudentDetailPanel({
       margin: "0 0 12px 0",
       fontSize: "18px",
       fontWeight: 900,
-      color: "#0f172a",
+      color: portalTheme.colors.textStrong,
     },
     chartCard: {
-      background: "#f8fafc",
-      borderRadius: "16px",
+      background: portalTheme.gradients.cardTint,
+      borderRadius: portalTheme.radius.md,
       padding: "16px",
-      border: "1px solid #e2e8f0",
+      border: `1px solid ${portalTheme.colors.lineStrong}`,
+      boxShadow: portalTheme.shadows.soft,
     },
     chartWrap: {
       width: "100%",
-      height: "280px",
-    },
-    chartStateBox: {
-      background: "#f8fafc",
-      borderRadius: "14px",
-      padding: "24px",
-      fontSize: "14px",
-      color: "#64748b",
-      textAlign: "center",
-      border: "1px dashed #cbd5e1",
+      height: "320px",
     },
     actionButtons: {
       display: "flex",
@@ -198,11 +188,8 @@ export function StudentDetailPanel({
     editButton: {
       flex: 1,
       minWidth: "100px",
-      border: "none",
-      background: "#0f766e",
-      color: "#ffffff",
+      ...portalButtonStyles.success,
       padding: "12px 16px",
-      borderRadius: "12px",
       fontSize: "14px",
       fontWeight: 700,
       cursor: "pointer",
@@ -210,11 +197,8 @@ export function StudentDetailPanel({
     deleteButton: {
       flex: 1,
       minWidth: "100px",
-      border: "none",
-      background: "#dc2626",
-      color: "#ffffff",
+      ...portalButtonStyles.warning,
       padding: "12px 16px",
-      borderRadius: "12px",
       fontSize: "14px",
       fontWeight: 700,
       cursor: "pointer",
@@ -222,11 +206,8 @@ export function StudentDetailPanel({
     detailButton: {
       flex: 1,
       minWidth: "100px",
-      border: "1px solid #cbd5e1",
-      background: "#ffffff",
-      color: "#334155",
+      ...portalButtonStyles.secondary,
       padding: "12px 16px",
-      borderRadius: "12px",
       fontSize: "14px",
       fontWeight: 700,
       cursor: "pointer",
@@ -236,7 +217,7 @@ export function StudentDetailPanel({
   if (!student) {
     return (
       <div style={styles.detailCard}>
-        <div style={styles.stateBox}>학생을 선택하세요.</div>
+        <EmptyState title="학생을 선택하세요" description="학생을 선택하면 상세 정보가 표시됩니다." />
       </div>
     );
   }
@@ -338,22 +319,23 @@ export function StudentDetailPanel({
       <div style={styles.section}>
         <h3 style={styles.sectionTitle}>모의고사 추이</h3>
         {mockChartData.length === 0 ? (
-          <div style={styles.chartStateBox}>표시할 데이터가 없습니다.</div>
+          <EmptyState title="모의고사 데이터가 없습니다" description="저장된 모의고사 기록이 없습니다." />
         ) : (
           <div style={styles.chartCard}>
             <div style={styles.chartWrap}>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={mockChartData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
-                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} interval={0} angle={-18} textAnchor="end" height={56} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: "#64748b" }} />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="korean" name="국어" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="math" name="수학" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="english" name="영어" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="average" name="평균" stroke="#7c3aed" strokeWidth={3} dot={{ r: 4 }} />
-                </LineChart>
+                <BarChart data={mockChartData} margin={{ top: 8, right: 12, left: 0, bottom: 12 }} barGap={6} barCategoryGap={20}>
+                  <CartesianGrid stroke={portalTheme.colors.lineStrong} strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: portalTheme.colors.textPrimary, fontWeight: 700 }} interval={0} angle={0} textAnchor="middle" height={40} tickLine={false} axisLine={{ stroke: portalTheme.colors.lineStrong }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: portalTheme.colors.textMuted }} />
+                  <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle} cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} />
+                  <Legend wrapperStyle={legendStyle} />
+                  <Bar dataKey="korean" name="국어" fill={portalTheme.chart[0]} radius={[6, 6, 0, 0]} maxBarSize={18} />
+                  <Bar dataKey="math" name="수학" fill={portalTheme.chart[1]} radius={[6, 6, 0, 0]} maxBarSize={18} />
+                  <Bar dataKey="english" name="영어" fill={portalTheme.chart[3]} radius={[6, 6, 0, 0]} maxBarSize={18} />
+                  <Bar dataKey="inquiry1" name="탐구1" fill={portalTheme.chart[2]} radius={[6, 6, 0, 0]} maxBarSize={18} />
+                  <Bar dataKey="inquiry2" name="탐구2" fill={portalTheme.chart[4]} radius={[6, 6, 0, 0]} maxBarSize={18} />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
@@ -361,7 +343,7 @@ export function StudentDetailPanel({
       </div>
 
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>체력 검사</h3>
+        <h3 style={styles.sectionTitle}>실기테스트기록</h3>
         <div style={styles.subjectBox}>
           <div style={styles.subjectRow}>
             <span>배근력</span>
@@ -387,10 +369,6 @@ export function StudentDetailPanel({
             <span>20m왕복달리기</span>
             <span>{s(student.run_20m) || "-"} 초</span>
           </div>
-          <div style={styles.subjectRow}>
-            <span>총점</span>
-            <span>{s(student.physical_total_score) || "-"}</span>
-          </div>
           {student.physical_memo && (
             <div style={styles.subjectRow}>
               <span>메모</span>
@@ -403,23 +381,24 @@ export function StudentDetailPanel({
       <div style={styles.section}>
         <h3 style={styles.sectionTitle}>실기 추이</h3>
         {physicalChartData.length === 0 ? (
-          <div style={styles.chartStateBox}>표시할 데이터가 없습니다.</div>
+          <EmptyState title="실기 데이터가 없습니다" description="저장된 실기 기록이 없습니다." />
         ) : (
           <div style={styles.chartCard}>
             <div style={styles.chartWrap}>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={physicalChartData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
-                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} interval={0} angle={-18} textAnchor="end" height={56} />
-                  <YAxis tick={{ fontSize: 12, fill: "#64748b" }} />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="total_score" name="총점" stroke="#dc2626" strokeWidth={3} dot={{ r: 4 }} />
-                  <Line type="monotone" dataKey="back_strength" name="배근력" stroke="#2563eb" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="run_10m" name="10m왕복달리기" stroke="#0f766e" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="standing_jump" name="제자리멀리뛰기" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="run_20m" name="20m왕복달리기" stroke="#7c3aed" strokeWidth={2} dot={false} />
-                </LineChart>
+                <BarChart data={physicalChartData} margin={{ top: 8, right: 12, left: 0, bottom: 12 }} barGap={4} barCategoryGap={16}>
+                  <CartesianGrid stroke={portalTheme.colors.lineStrong} strokeDasharray="3 3" />
+                  <XAxis dataKey="short_label" tick={{ fontSize: 11, fill: portalTheme.colors.textPrimary, fontWeight: 700 }} interval={0} angle={0} textAnchor="middle" height={40} tickLine={false} axisLine={{ stroke: portalTheme.colors.lineStrong }} />
+                  <YAxis tick={{ fontSize: 12, fill: portalTheme.colors.textMuted }} />
+                  <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle} cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} />
+                  <Legend wrapperStyle={legendStyle} />
+                  <Bar dataKey="back_strength" name="배근력" fill={portalTheme.chart[0]} radius={[6, 6, 0, 0]} maxBarSize={16} />
+                  <Bar dataKey="run_10m" name="10m" fill={portalTheme.chart[1]} radius={[6, 6, 0, 0]} maxBarSize={16} />
+                  <Bar dataKey="medicine_ball" name="메디신볼" fill={portalTheme.chart[3]} radius={[6, 6, 0, 0]} maxBarSize={16} />
+                  <Bar dataKey="sit_reach" name="좌전굴" fill={portalTheme.chart[4]} radius={[6, 6, 0, 0]} maxBarSize={16} />
+                  <Bar dataKey="standing_jump" name="제자리멀리뛰기" fill={portalTheme.chart[2]} radius={[6, 6, 0, 0]} maxBarSize={16} />
+                  <Bar dataKey="run_20m" name="20m왕복달리기" fill={portalTheme.chart[5]} radius={[6, 6, 0, 0]} maxBarSize={16} />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
@@ -444,3 +423,25 @@ export function StudentDetailPanel({
     </div>
   );
 }
+
+const legendStyle = {
+  fontSize: 12,
+  color: portalTheme.colors.textPrimary,
+  paddingTop: 4,
+};
+
+const tooltipContentStyle = {
+  borderRadius: 14,
+  border: `1px solid ${portalTheme.colors.lineStrong}`,
+  boxShadow: portalTheme.shadows.cardStrong,
+  background: "rgba(255,255,255,0.98)",
+};
+
+const tooltipLabelStyle = {
+  color: portalTheme.colors.textStrong,
+  fontWeight: 800,
+};
+
+const tooltipItemStyle = {
+  color: portalTheme.colors.textPrimary,
+};

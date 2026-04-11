@@ -181,19 +181,29 @@ export type StudentMockChartPoint = {
   korean: number;
   math: number;
   english: number;
-  average: number;
+  inquiry1: number;
+  inquiry2: number;
 };
 
 export type StudentPhysicalChartPoint = {
   test_id: string;
   label: string;
+  short_label: string;
   test_name: string;
   test_date: string;
   total_score: number;
   back_strength: number;
   run_10m: number;
+  medicine_ball: number;
+  sit_reach: number;
   standing_jump: number;
   run_20m: number;
+  back_strength_score: number;
+  run_10m_score: number;
+  medicine_ball_score: number;
+  sit_reach_score: number;
+  standing_jump_score: number;
+  run_20m_score: number;
 };
 
 export type ApiResponse<T> = {
@@ -205,6 +215,72 @@ export type ApiResponse<T> = {
 
 function s(value: unknown) {
   return String(value ?? "").trim();
+}
+
+export function normalizeBranchId(value: unknown) {
+  return s(value);
+}
+
+export function normalizeAccountRecord(account: Account | null | undefined) {
+  if (!account) {
+    return null;
+  }
+
+  return {
+    ...account,
+    account_id: s(account.account_id),
+    login_id: s(account.login_id),
+    password_hash: s(account.password_hash),
+    role: s(account.role),
+    student_id: s(account.student_id),
+    branch_id: s(account.branch_id),
+    name: s(account.name),
+    is_active: s(account.is_active),
+  } satisfies Account;
+}
+
+export function resolveAccountBranchId(
+  account: Account | null | undefined,
+  fallbackBranchId?: unknown
+) {
+  const normalizedAccount = normalizeAccountRecord(account);
+  const branchId = s(normalizedAccount?.branch_id) || s(fallbackBranchId);
+
+  if (!branchId && s(normalizedAccount?.role).toLowerCase() === "student") {
+    console.warn("Missing branch_id for student account");
+  }
+
+  return branchId;
+}
+
+export function normalizeStudentId(input: unknown) {
+  if (typeof input === "string" || typeof input === "number") {
+    const normalizedValue = String(input).trim();
+
+    if (!normalizedValue || normalizedValue === "[object Object]") {
+      throw new Error("Invalid student_id");
+    }
+
+    return normalizedValue;
+  }
+
+  if (input && typeof input === "object") {
+    const candidate = input as {
+      student_id?: unknown;
+      id?: unknown;
+      account_id?: unknown;
+    };
+
+    const nestedValue = candidate.student_id ?? candidate.id ?? candidate.account_id;
+
+    if (nestedValue === undefined || nestedValue === null) {
+      throw new Error("Invalid student_id");
+    }
+
+    return normalizeStudentId(nestedValue);
+  }
+
+  throw new Error("Invalid student_id");
 }
 
 function getNumericValue(value: unknown) {
@@ -223,18 +299,15 @@ function getSortableDateValue(rawDate: unknown) {
   return Number(`${dateMatch[1]}${dateMatch[2].padStart(2, "0")}${dateMatch[3].padStart(2, "0")}`);
 }
 
-function buildMockExamLabel(exam: MockExam | undefined, score: MockScore) {
-  const examName = s(exam?.exam_name) || s(score.exam_id) || "시험";
-  const examDate = s(exam?.exam_date);
+function buildCompactMonthLabel(rawDate: unknown) {
+  const normalizedDate = s(rawDate);
+  const dateMatch = normalizedDate.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
 
-  return examDate ? `${examName} (${examDate})` : examName;
-}
+  if (!dateMatch) {
+    return normalizedDate || "날짜 없음";
+  }
 
-function buildPhysicalTestLabel(test: PhysicalTest | undefined, record: PhysicalRecord) {
-  const testName = s(test?.test_name) || "실기";
-  const testDate = s(record.test_date) || s(test?.test_date);
-
-  return testDate ? `${testName} (${testDate})` : testName;
+  return `${dateMatch[1].slice(2)}년${Number(dateMatch[2])}월`;
 }
 
 type StudentMockChartDataArgs = {
@@ -277,20 +350,20 @@ export function getStudentMockChartData({
       const korean = getNumericValue(score.korean_raw);
       const math = getNumericValue(score.math_raw);
       const english = getNumericValue(score.english_raw);
-      const averageBase = [korean, math, english].filter((value) => value > 0);
+      const inquiry1 = getNumericValue(score.inquiry1_raw);
+      const inquiry2 = getNumericValue(score.inquiry2_raw);
+      const examDate = s(exam?.exam_date);
 
       return {
         exam_id: s(score.exam_id),
-        label: buildMockExamLabel(exam, score),
+        label: buildCompactMonthLabel(examDate),
         exam_name: s(exam?.exam_name) || s(score.exam_id),
-        exam_date: s(exam?.exam_date),
+        exam_date: examDate,
         korean,
         math,
         english,
-        average:
-          averageBase.length > 0
-            ? Number((averageBase.reduce((sum, value) => sum + value, 0) / averageBase.length).toFixed(1))
-            : 0,
+        inquiry1,
+        inquiry2,
       };
     });
 
@@ -328,17 +401,27 @@ export function getStudentPhysicalChartData({
     })
     .map((record) => {
       const test = testsById.get(s(record.test_id));
+      const testDate = s(record.test_date) || s(test?.test_date);
 
       return {
         test_id: s(record.test_id),
-        label: buildPhysicalTestLabel(test, record),
+        label: buildCompactMonthLabel(testDate),
+        short_label: buildCompactMonthLabel(testDate),
         test_name: s(test?.test_name),
-        test_date: s(record.test_date) || s(test?.test_date),
+        test_date: testDate,
         total_score: getNumericValue(record.total_score),
-        back_strength: getNumericValue(record.back_strength_value),
-        run_10m: getNumericValue(record.run_10m_value),
-        standing_jump: getNumericValue(record.standing_jump_value),
-        run_20m: getNumericValue(record.run_20m_value),
+        back_strength: getNumericValue(record.back_strength_score),
+        run_10m: getNumericValue(record.run_10m_score),
+        medicine_ball: getNumericValue(record.medicine_ball_score),
+        sit_reach: getNumericValue(record.sit_reach_score),
+        standing_jump: getNumericValue(record.standing_jump_score),
+        run_20m: getNumericValue(record.run_20m_score),
+        back_strength_score: getNumericValue(record.back_strength_score),
+        run_10m_score: getNumericValue(record.run_10m_score),
+        medicine_ball_score: getNumericValue(record.medicine_ball_score),
+        sit_reach_score: getNumericValue(record.sit_reach_score),
+        standing_jump_score: getNumericValue(record.standing_jump_score),
+        run_20m_score: getNumericValue(record.run_20m_score),
       };
     });
 
@@ -365,42 +448,131 @@ async function safeJson(res: Response) {
   }
 }
 
+const COLLECTION_CACHE_TTL_MS = 5_000;
+const collectionCache = new Map<string, { expiresAt: number; data: unknown }>();
+const collectionRequestCache = new Map<string, Promise<ApiResponse<unknown>>>();
+
+function readCollectionCache<T>(cacheKey: string) {
+  const cachedEntry = collectionCache.get(cacheKey);
+
+  if (!cachedEntry || cachedEntry.expiresAt <= Date.now()) {
+    collectionCache.delete(cacheKey);
+    return null;
+  }
+
+  return cachedEntry.data as T;
+}
+
+function writeCollectionCache<T>(cacheKey: string, data: T) {
+  collectionCache.set(cacheKey, {
+    expiresAt: Date.now() + COLLECTION_CACHE_TTL_MS,
+    data,
+  });
+}
+
+function invalidateCollectionCache(cacheKeyPrefix: string) {
+  Array.from(collectionCache.keys()).forEach((cacheKey) => {
+    if (cacheKey.startsWith(cacheKeyPrefix)) {
+      collectionCache.delete(cacheKey);
+    }
+  });
+
+  Array.from(collectionRequestCache.keys()).forEach((cacheKey) => {
+    if (cacheKey.startsWith(cacheKeyPrefix)) {
+      collectionRequestCache.delete(cacheKey);
+    }
+  });
+}
+
+async function fetchCollectionWithCache<T>({
+  cacheKey,
+  url,
+  extractData,
+  fallbackError,
+}: {
+  cacheKey: string;
+  url: string;
+  extractData: (result: Record<string, unknown>) => T;
+  fallbackError: string;
+}): Promise<ApiResponse<T>> {
+  const cachedData = readCollectionCache<T>(cacheKey);
+
+  if (cachedData !== null) {
+    return {
+      ok: true,
+      data: cachedData,
+    };
+  }
+
+  const inFlightRequest = collectionRequestCache.get(cacheKey);
+
+  if (inFlightRequest) {
+    return inFlightRequest as Promise<ApiResponse<T>>;
+  }
+
+  const requestPromise = (async () => {
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const rawResult = await safeJson(res);
+      const result = rawResult && typeof rawResult === "object" ? (rawResult as Record<string, unknown>) : {};
+      const data = extractData(result);
+
+      if (!res.ok || result.ok === false) {
+        return {
+          ok: false,
+          error: String(result.error || fallbackError),
+        };
+      }
+
+      writeCollectionCache(cacheKey, data);
+
+      return {
+        ok: true,
+        data,
+      };
+    } catch (error: any) {
+      return {
+        ok: false,
+        error: `${fallbackError}: ${error?.message || String(error)}`,
+      };
+    } finally {
+      collectionRequestCache.delete(cacheKey);
+    }
+  })();
+
+  collectionRequestCache.set(cacheKey, requestPromise as Promise<ApiResponse<unknown>>);
+
+  return requestPromise;
+}
+
 // === STUDENT OPERATIONS ===
 
 export async function getStudents(examId?: string): Promise<ApiResponse<Student[]>> {
-  try {
-    const examQuery = examId ? `&exam_id=${encodeURIComponent(examId)}` : "";
-    const res = await fetch(`/api/students?_ts=${Date.now()}${examQuery}`, {
-      method: "GET",
-      cache: "no-store",
-    });
-    const result = await safeJson(res);
+  const examQuery = examId ? `?exam_id=${encodeURIComponent(examId)}` : "";
 
-    const studentData = Array.isArray(result.students)
-      ? result.students
-      : Array.isArray(result.data)
-      ? result.data
-      : result.data && Array.isArray(result.data.students)
-      ? result.data.students
-      : [];
+  return fetchCollectionWithCache<Student[]>({
+    cacheKey: `students:${examId || "all"}`,
+    url: `/api/students${examQuery}`,
+    fallbackError: "Failed to fetch students",
+    extractData: (result) => {
+      if (Array.isArray(result.students)) {
+        return result.students as Student[];
+      }
 
-    if (!res.ok || (result.ok === false && studentData.length === 0)) {
-      return {
-        ok: false,
-        error: result.error || "Failed to fetch students",
-      };
-    }
+      if (Array.isArray(result.data)) {
+        return result.data as Student[];
+      }
 
-    return {
-      ok: true,
-      data: studentData,
-    };
-  } catch (error: any) {
-    return {
-      ok: false,
-      error: `Failed to fetch students: ${error?.message || String(error)}`,
-    };
-  }
+      if (result.data && typeof result.data === "object" && Array.isArray((result.data as { students?: unknown }).students)) {
+        return (result.data as { students: Student[] }).students;
+      }
+
+      return [];
+    },
+  });
 }
 
 export async function createStudent(student: Student): Promise<ApiResponse<Student>> {
@@ -421,6 +593,8 @@ export async function createStudent(student: Student): Promise<ApiResponse<Stude
         error: result.error || "Failed to create student",
       };
     }
+
+    invalidateCollectionCache("students:");
 
     return {
       ok: true,
@@ -453,6 +627,8 @@ export async function updateStudent(student: Student): Promise<ApiResponse<Stude
       };
     }
 
+    invalidateCollectionCache("students:");
+
     return {
       ok: true,
       data: result.student || student,
@@ -484,6 +660,8 @@ export async function deleteStudent(studentId: string): Promise<ApiResponse<void
       };
     }
 
+    invalidateCollectionCache("students:");
+
     return { ok: true };
   } catch (error: any) {
     return {
@@ -496,30 +674,12 @@ export async function deleteStudent(studentId: string): Promise<ApiResponse<void
 // === BRANCH OPERATIONS ===
 
 export async function getBranches(): Promise<ApiResponse<Branch[]>> {
-  try {
-    const res = await fetch(`/api/branches?_ts=${Date.now()}`, {
-      method: "GET",
-      cache: "no-store",
-    });
-    const result = await safeJson(res);
-    
-    if (!res.ok || !result.ok) {
-      return {
-        ok: false,
-        error: result.error || "Failed to fetch branches",
-      };
-    }
-
-    return {
-      ok: true,
-      data: Array.isArray(result.branches) ? result.branches : [],
-    };
-  } catch (error: any) {
-    return {
-      ok: false,
-      error: `Failed to fetch branches: ${error?.message || String(error)}`,
-    };
-  }
+  return fetchCollectionWithCache<Branch[]>({
+    cacheKey: "branches:all",
+    url: "/api/branches",
+    fallbackError: "Failed to fetch branches",
+    extractData: (result) => (Array.isArray(result.branches) ? (result.branches as Branch[]) : []),
+  });
 }
 
 // === EXAM OPERATIONS ===
@@ -559,7 +719,10 @@ export async function createBranch(branch: Branch): Promise<ApiResponse<Branch>>
         "Content-Type": "application/json",
         "Cache-Control": "no-cache",
       },
-      body: JSON.stringify(branch),
+      body: JSON.stringify({
+        action: "saveBranch",
+        row: branch,
+      }),
     });
     const result = await safeJson(res);
 
@@ -570,9 +733,11 @@ export async function createBranch(branch: Branch): Promise<ApiResponse<Branch>>
       };
     }
 
+    invalidateCollectionCache("branches:");
+
     return {
       ok: true,
-      data: result.branch || branch,
+      data: (result.data as Branch | undefined) || branch,
     };
   } catch (error: any) {
     return {
@@ -590,7 +755,10 @@ export async function updateBranch(branch: Branch): Promise<ApiResponse<Branch>>
         "Content-Type": "application/json",
         "Cache-Control": "no-cache",
       },
-      body: JSON.stringify(branch),
+      body: JSON.stringify({
+        action: "saveBranch",
+        row: branch,
+      }),
     });
     const result = await safeJson(res);
 
@@ -601,9 +769,11 @@ export async function updateBranch(branch: Branch): Promise<ApiResponse<Branch>>
       };
     }
 
+    invalidateCollectionCache("branches:");
+
     return {
       ok: true,
-      data: result.branch || branch,
+      data: (result.data as Branch | undefined) || branch,
     };
   } catch (error: any) {
     return {
@@ -621,7 +791,10 @@ export async function deleteBranch(branchId: string): Promise<ApiResponse<void>>
         "Content-Type": "application/json",
         "Cache-Control": "no-cache",
       },
-      body: JSON.stringify({ branch_id: branchId }),
+      body: JSON.stringify({
+        action: "deleteBranch",
+        row: { branch_id: branchId },
+      }),
     });
     const result = await safeJson(res);
 
@@ -631,6 +804,8 @@ export async function deleteBranch(branchId: string): Promise<ApiResponse<void>>
         error: result.error || "Failed to delete branch",
       };
     }
+
+    invalidateCollectionCache("branches:");
 
     return { ok: true };
   } catch (error: any) {

@@ -1,7 +1,9 @@
 export const dynamic = "force-dynamic";
 
 const APPS_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycby26EjlRkoDy6NWTLNJgZHKWgDQFbQ-2JarGtTOWivvGW_Pd7BdhN7TqfxSZl6PePKy0w/exec";
+  process.env.APPS_SCRIPT_URL ||
+  process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
+  "https://script.google.com/macros/s/AKfycbzMiiF4k6E2VAbLxOHJ39lGrDOv9PP9YnHI7he_Y-xyFtS91E4xjkRZG1vj68BKuPnBBA/exec";
 
 async function safeJson(res: Response) {
   const text = await res.text();

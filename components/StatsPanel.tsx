@@ -1,5 +1,7 @@
 import React from "react";
 import type { Student, Branch } from "@/lib/dataService";
+import { EmptyState } from "@/components/EmptyState";
+import { portalTheme } from "@/lib/theme";
 
 interface StatsPanelProps {
   branches: Branch[];
@@ -7,7 +9,6 @@ interface StatsPanelProps {
   topStudents: Student[];
   subjectStats: Record<string, string>;
   getAverageNumber: (student: Student) => number;
-  getBranchLabel: (branchId: string | undefined) => string;
   s: (value: unknown) => string;
 }
 
@@ -17,9 +18,11 @@ export function StatsPanel({
   topStudents,
   subjectStats,
   getAverageNumber,
-  getBranchLabel,
   s,
 }: StatsPanelProps) {
+  void branches;
+  void students;
+
   const styles: { [key: string]: React.CSSProperties } = {
     statsSection: {
       display: "grid",
@@ -28,69 +31,32 @@ export function StatsPanel({
       marginBottom: "20px",
     },
     statsCard: {
-      background: "#ffffff",
-      borderRadius: "18px",
+      background: portalTheme.gradients.card,
+      borderRadius: portalTheme.radius.md,
       padding: "18px 20px",
-      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-      border: "1px solid #eef2f7",
+      boxShadow: portalTheme.shadows.card,
+      border: `1px solid ${portalTheme.colors.line}`,
+      borderLeft: `4px solid ${portalTheme.colors.primary}`,
     },
     statsTitle: {
       margin: "0 0 14px 0",
       fontSize: "18px",
       fontWeight: 900,
-      color: "#0f172a",
+      color: portalTheme.colors.textStrong,
     },
     statsRow: {
       display: "flex",
       justifyContent: "space-between",
       gap: "12px",
-      padding: "8px 0",
-      borderBottom: "1px solid #f1f5f9",
+      padding: "10px 0",
+      borderBottom: `1px solid ${portalTheme.colors.lineSoft}`,
       fontSize: "14px",
-      color: "#334155",
-    },
-    stateBox: {
-      background: "#f8fafc",
-      borderRadius: "14px",
-      padding: "24px",
-      fontSize: "14px",
-      color: "#64748b",
-      textAlign: "center",
+      color: portalTheme.colors.textPrimary,
     },
   };
 
-  // Calculate branch stats
-  const branchStats = branches.map((branch) => {
-    const studentsInBranch = students.filter((st) => s(st.branch_id) === s(branch.branch_id));
-    const count = studentsInBranch.length;
-    const avg =
-      count === 0
-        ? 0
-        : studentsInBranch.reduce((acc, cur) => acc + getAverageNumber(cur), 0) / count;
-    return {
-      branch_id: s(branch.branch_id),
-      branch_name: s(branch.branch_name),
-      count,
-      avg: avg.toFixed(1),
-    };
-  });
-
   return (
     <section style={styles.statsSection}>
-      <div style={styles.statsCard}>
-        <h3 style={styles.statsTitle}>지점별 현황</h3>
-        {branchStats.length === 0 ? (
-          <div style={styles.stateBox}>지점 데이터가 없습니다.</div>
-        ) : (
-          branchStats.map((item) => (
-            <div key={item.branch_id} style={styles.statsRow}>
-              <span>{item.branch_name}</span>
-              <span>{item.count}명 / 평균 {item.avg}</span>
-            </div>
-          ))
-        )}
-      </div>
-
       <div style={styles.statsCard}>
         <h3 style={styles.statsTitle}>과목별 평균</h3>
         <div style={styles.statsRow}>
@@ -122,7 +88,7 @@ export function StatsPanel({
       <div style={styles.statsCard}>
         <h3 style={styles.statsTitle}>상위 평균 학생 TOP 5</h3>
         {topStudents.length === 0 ? (
-          <div style={styles.stateBox}>학생 데이터가 없습니다.</div>
+          <EmptyState title="학생 데이터가 없습니다" description="평균을 계산할 학생 데이터가 없습니다." />
         ) : (
           topStudents.map((st, idx) => (
             <div key={s(st.student_id)} style={styles.statsRow}>

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { savePortalRow } from "@/lib/save";
+import Image from "next/image";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { saveMockScore, savePhysicalRecord, saveStudent } from "@/lib/api";
 import type {
   Account,
   Branch,
@@ -13,10 +14,32 @@ import type {
   StudentMockChartPoint,
   StudentPhysicalChartPoint,
 } from "@/lib/dataService";
-import { getStudentMockChartData, getStudentPhysicalChartData } from "@/lib/dataService";
-import { StudentModal } from "@/components/StudentModal";
+import {
+  deleteStudent as deleteStudentRecord,
+  getStudentMockChartData,
+  getStudentPhysicalChartData,
+  normalizeAccountRecord,
+  normalizeBranchId,
+  normalizeStudentId,
+  resolveAccountBranchId,
+} from "@/lib/dataService";
+import {
+  ensurePortalSharedLightData,
+  ensurePortalSharedStudentDetails,
+  getPortalSharedStudentDetails,
+  hasPortalSharedStudentDetails,
+  removePortalSharedStudentDetails,
+  removePortalSharedStudent,
+  resetPortalSharedStore,
+  syncPortalSharedCurrentAccount,
+  upsertPortalSharedStudent,
+  usePortalSharedStore,
+} from "@/lib/portalStore";
+import { AdminDashboard } from "@/components/AdminDashboard";
+import { StudentDashboard } from "@/components/StudentDashboard";
 import { StudentDetailPanel } from "@/components/StudentDetailPanel";
-import { StudentChartSection } from "@/components/StudentChartSection";
+import { StudentModal } from "@/components/StudentModal";
+import { portalButtonStyles, portalTheme } from "@/lib/theme";
 
 type SortType =
   | "default"
@@ -40,7 +63,15 @@ type AccountSession = {
   name: string;
 };
 
-type PortalDataMode = "auth" | "scoped";
+type FeedbackState = {
+  type: "success" | "error" | "info";
+  message: string;
+} | null;
+
+type SaveHandlerOptions = {
+  skipRefresh?: boolean;
+  suppressFeedback?: boolean;
+};
 
 const PORTAL_ACCOUNT_SESSION_KEY = "portal_account";
 
@@ -130,29 +161,170 @@ function normalizeRole(value: unknown): Role {
 }
 
 function buildAccountSession(account: Account): AccountSession {
+  const normalizedAccount = normalizeAccountRecord(account);
+
   return {
-    account_id: s(account.account_id).trim(),
-    login_id: s(account.login_id).trim(),
-    role: s(account.role).trim(),
-    student_id: s(account.student_id).trim(),
-    branch_id: s(account.branch_id).trim(),
-    name: s(account.name).trim(),
+    account_id: s(normalizedAccount?.account_id).trim(),
+    login_id: s(normalizedAccount?.login_id).trim(),
+    role: s(normalizedAccount?.role).trim(),
+    student_id: s(normalizedAccount?.student_id).trim(),
+    branch_id: resolveAccountBranchId(normalizedAccount),
+    name: s(normalizedAccount?.name).trim(),
   };
 }
 
-function buildPortalDataUrl(mode: PortalDataMode, account?: Account | null) {
-  const params = new URLSearchParams({
-    _ts: String(Date.now()),
-    mode,
-  });
+function persistAccountSession(account: Account) {
+  const normalizedAccount = normalizeAccountRecord(account);
 
-  if (mode === "scoped" && account) {
-    params.set("role", normalizeRole(account.role));
-    params.set("branch_id", s(account.branch_id).trim());
-    params.set("student_id", s(account.student_id).trim());
+  if (!normalizedAccount || typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    sessionStorage.setItem(PORTAL_ACCOUNT_SESSION_KEY, JSON.stringify(buildAccountSession(normalizedAccount)));
+    sessionStorage.setItem("portal_login_id", s(normalizedAccount.login_id));
+  } catch {}
+}
+
+function readStoredAccountSession() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const savedAccountText = sessionStorage.getItem(PORTAL_ACCOUNT_SESSION_KEY);
+
+    if (savedAccountText) {
+      return JSON.parse(savedAccountText) as Partial<AccountSession>;
+    }
+
+    const legacyLoginId = sessionStorage.getItem("portal_login_id");
+
+    if (legacyLoginId) {
+      return {
+        login_id: s(legacyLoginId).trim(),
+      };
+    }
+  } catch {}
+
+  return null;
+}
+
+function buildAccountFromSession(session: Partial<AccountSession>) {
+  const loginId = s(session.login_id).trim();
+  const role = s(session.role).trim();
+
+  if (!loginId || !role) {
+    return null;
+  }
+
+  return normalizeAccountRecord({
+    account_id: s(session.account_id).trim(),
+    login_id: loginId,
+    password_hash: "",
+    role,
+    student_id: s(session.student_id).trim(),
+    branch_id: normalizeBranchId(session.branch_id),
+    name: s(session.name).trim(),
+    is_active: "true",
+  } satisfies Account);
+}
+
+function findAccountInCollection(accounts: Account[], account: Account | null) {
+  const normalizedAccount = normalizeAccountRecord(account);
+
+  if (!normalizedAccount) {
+    return null;
+  }
+
+  const normalizedAccountId = s(normalizedAccount.account_id).trim();
+  const normalizedLoginId = s(normalizedAccount.login_id).trim();
+
+  return (
+    accounts.find((candidate) => {
+      const normalizedCandidate = normalizeAccountRecord(candidate);
+
+      if (!normalizedCandidate) {
+        return false;
+      }
+
+      if (normalizedAccountId && s(normalizedCandidate.account_id).trim() === normalizedAccountId) {
+        return true;
+      }
+
+      return normalizedLoginId !== "" && s(normalizedCandidate.login_id).trim() === normalizedLoginId;
+    }) || null
+  );
+}
+
+function hydrateAccountBranchId(account: Account | null, accounts: Account[]) {
+  const normalizedAccount = normalizeAccountRecord(account);
+
+  if (!normalizedAccount) {
+    return null;
+  }
+
+  const matchedAccount = findAccountInCollection(accounts, normalizedAccount);
+  const hydratedAccount = normalizeAccountRecord(matchedAccount || normalizedAccount);
+
+  if (!hydratedAccount) {
+    return null;
+  }
+
+  return {
+    ...hydratedAccount,
+    branch_id: resolveAccountBranchId(hydratedAccount, normalizedAccount.branch_id),
+  } satisfies Account;
+}
+
+function isSameAccount(left: Account | null, right: Account | null) {
+  const normalizedLeft = normalizeAccountRecord(left);
+  const normalizedRight = normalizeAccountRecord(right);
+  const accountComparisonKeys = ["account_id", "login_id", "role", "student_id", "branch_id", "name"] as const;
+
+  if (!normalizedLeft || !normalizedRight) {
+    return normalizedLeft === normalizedRight;
+  }
+
+  return accountComparisonKeys.every(
+    (key) => s(normalizedLeft[key]).trim() === s(normalizedRight[key]).trim()
+  );
+}
+
+function buildPortalDataUrl(account?: Account | null) {
+  const params = new URLSearchParams();
+  const normalizedAccount = normalizeAccountRecord(account);
+
+  if (normalizedAccount) {
+    const role = normalizeRole(normalizedAccount.role);
+    const branchId = resolveAccountBranchId(normalizedAccount);
+
+    params.set("role", role);
+    params.set("branch_id", branchId);
+    params.set("student_id", s(normalizedAccount.student_id).trim());
+
+    if (role === "student") {
+      params.set("login_id", s(normalizedAccount.login_id).trim());
+      params.set("account_name", s(normalizedAccount.name).trim());
+    }
   }
 
   return `/api/portal-data?${params.toString()}`;
+}
+
+function buildPortalDetailUrl(studentId: string, account?: Account | null, fallbackBranchId?: string) {
+  const normalizedStudentId = normalizeStudentId(studentId);
+  const params = new URLSearchParams();
+  const normalizedAccount = normalizeAccountRecord(account);
+
+  if (normalizedAccount) {
+    params.set("role", normalizeRole(normalizedAccount.role));
+    params.set("branch_id", resolveAccountBranchId(normalizedAccount, fallbackBranchId));
+  }
+
+  params.set("student_id", normalizedStudentId);
+
+  return `/api/portal-data/details?${params.toString()}`;
 }
 
 function isTruthy(value: unknown) {
@@ -240,6 +412,72 @@ function buildStudentSheetRow(student: Student, existingStudent?: Student | null
   };
 }
 
+type StudentListItem = Student & {
+  id?: string | number;
+  account_id?: string | number;
+};
+
+type StudentWithExamScores = Student & {
+  exam_scores?: Record<string, Partial<Student>>;
+};
+
+function getStudentPreferredSelectionId(student: Student | null | undefined) {
+  const candidate = student as StudentListItem | null | undefined;
+
+  try {
+    return normalizeStudentId(candidate?.student_id ?? candidate?.id ?? candidate?.account_id ?? "");
+  } catch {
+    return "";
+  }
+}
+
+function isValidStudentRecord(student: Student | null | undefined) {
+  return !!s(student?.student_id).trim() && !!s(student?.name).trim();
+}
+
+function matchesStudentSelection(student: Student | null | undefined, selectionId: string | null | undefined) {
+  const candidate = student as StudentListItem | null | undefined;
+  let normalizedSelectionId = "";
+
+  try {
+    normalizedSelectionId = normalizeStudentId(selectionId);
+  } catch {
+    normalizedSelectionId = "";
+  }
+
+  if (!normalizedSelectionId || !candidate) {
+    return false;
+  }
+
+  try {
+    return normalizeStudentId(candidate.student_id ?? candidate.id ?? candidate.account_id ?? "") === normalizedSelectionId;
+  } catch {
+    return false;
+  }
+}
+
+function dedupeStudents(students: Student[]) {
+  const uniqueStudents = new Map<string, Student>();
+
+  students.filter(isValidStudentRecord).forEach((student, index) => {
+    const dedupeKey =
+      getStudentPreferredSelectionId(student) ||
+      `${s(student.name).trim()}-${s(student.phone).trim()}-${s(student.branch_id).trim()}-${index}`;
+    const existingStudent = uniqueStudents.get(dedupeKey);
+
+    if (!existingStudent) {
+      uniqueStudents.set(dedupeKey, student);
+      return;
+    }
+
+    if (s(student.updated_at).trim().localeCompare(s(existingStudent.updated_at).trim()) > 0) {
+      uniqueStudents.set(dedupeKey, student);
+    }
+  });
+
+  return Array.from(uniqueStudents.values());
+}
+
 function mergeStudentsWithSheetData({
   students,
   mockExams,
@@ -253,6 +491,7 @@ function mergeStudentsWithSheetData({
   physicalTests: PhysicalTest[];
   physicalRecords: PhysicalRecord[];
 }) {
+  const validStudents = students.filter(isValidStudentRecord);
   const scoreDateByExamId = new Map(mockExams.map((exam) => [s(exam.exam_id), getSortableDateValue(exam.exam_date)]));
   const physicalDateByTestId = new Map(physicalTests.map((test) => [s(test.test_id), getSortableDateValue(test.test_date)]));
   const scoresByStudentId = new Map<string, MockScore[]>();
@@ -278,7 +517,7 @@ function mergeStudentsWithSheetData({
     physicalByStudentId.set(studentId, nextRecords);
   });
 
-  return students.map((student) => {
+  const mergedStudents = validStudents.map((student) => {
     const studentId = s(student.student_id).trim();
     const studentScores = [...(scoresByStudentId.get(studentId) || [])].sort((left, right) => {
       const dateDiff = (scoreDateByExamId.get(s(right.exam_id)) || -1) - (scoreDateByExamId.get(s(left.exam_id)) || -1);
@@ -306,7 +545,7 @@ function mergeStudentsWithSheetData({
     });
     const latestPhysicalRecord = studentPhysicalRecords[0];
 
-    const mergedStudent: Student = {
+    const mergedStudent: StudentWithExamScores = {
       ...student,
       exam_id: currentExamId,
       ...pickScoreFields(primaryScore),
@@ -320,9 +559,11 @@ function mergeStudentsWithSheetData({
       physical_memo: s(latestPhysicalRecord?.memo || student.physical_memo),
     };
 
-    (mergedStudent as any).exam_scores = examScores;
+    mergedStudent.exam_scores = examScores;
     return mergedStudent;
   });
+
+  return dedupeStudents(mergedStudents);
 }
 
 function getScoreNumber(value: string | number | undefined) {
@@ -396,7 +637,199 @@ function debugLogLoginFailure(reason: "id mismatch" | "password mismatch" | "ina
   });
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function normalizeBranchLookupValue(value: unknown) {
+  return s(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeBranchRecord(branch: Branch): Branch {
+  const branchId = s(branch.branch_id).trim() || s(branch.branch_code).trim() || s(branch.branch_name).trim();
+  const branchName = s(branch.branch_name).trim() || branchId;
+  const branchCode = s(branch.branch_code).trim();
+
+  return {
+    ...branch,
+    branch_id: branchId,
+    branch_name: branchName,
+    branch_code: branchCode || undefined,
+  };
+}
+
+function normalizeBranches(branches: Branch[]) {
+  const uniqueBranches = new Map<string, Branch>();
+
+  branches.forEach((branch) => {
+    const normalizedBranch = normalizeBranchRecord(branch);
+
+    if (!normalizedBranch.branch_id || uniqueBranches.has(normalizedBranch.branch_id)) {
+      return;
+    }
+
+    uniqueBranches.set(normalizedBranch.branch_id, normalizedBranch);
+  });
+
+  return Array.from(uniqueBranches.values());
+}
+
+function resolveBranchId(branches: Branch[], candidate: unknown) {
+  const rawCandidate = s(candidate).trim();
+  const normalizedCandidate = normalizeBranchLookupValue(rawCandidate);
+
+  if (!normalizedCandidate) {
+    return "";
+  }
+
+  const matchedBranch = branches.find((branch) => {
+    return [branch.branch_id, branch.branch_code, branch.branch_name]
+      .map(normalizeBranchLookupValue)
+      .includes(normalizedCandidate);
+  });
+
+  return matchedBranch ? s(matchedBranch.branch_id).trim() : rawCandidate;
+}
+
+function findStudentForAccount(students: Student[], account: Account | null) {
+  if (!account) {
+    return null;
+  }
+
+  const candidateTokens = [
+    s(account.student_id).trim(),
+    s(account.login_id).trim(),
+    s(account.name).trim(),
+  ]
+    .map(normalizeCompareText)
+    .filter(Boolean);
+
+  if (candidateTokens.length === 0) {
+    return null;
+  }
+
+  return (
+    students.find((student) => {
+      const studentTokens = [s(student.student_id).trim(), s(student.student_no).trim(), s(student.name).trim()]
+        .map(normalizeCompareText)
+        .filter(Boolean);
+
+      return candidateTokens.some((token) => studentTokens.includes(token));
+    }) || null
+  );
+}
+
+function normalizeStudentRecord(student: Student, branches: Branch[]) {
+  return {
+    ...student,
+    branch_id: resolveBranchId(branches, student.branch_id),
+  };
+}
+
+function normalizeBranchScopedRow<T extends { branch_id?: string }>(row: T, branches: Branch[]) {
+  return {
+    ...row,
+    branch_id: resolveBranchId(branches, row.branch_id),
+  };
+}
+
+function upsertStudentRecord(students: Student[], nextStudent: Student) {
+  const nextStudentId = s(nextStudent.student_id).trim();
+
+  if (!nextStudentId) {
+    return students;
+  }
+
+  const existingIndex = students.findIndex((student) => s(student.student_id).trim() === nextStudentId);
+
+  if (existingIndex === -1) {
+    return [nextStudent, ...students];
+  }
+
+  return students.map((student, index) => (index === existingIndex ? { ...student, ...nextStudent } : student));
+}
+
+function upsertMockScoreRecord(scores: MockScore[], nextScore: MockScore) {
+  const nextStudentId = s(nextScore.student_id).trim();
+  const nextExamId = s(nextScore.exam_id).trim();
+
+  if (!nextStudentId || !nextExamId) {
+    return scores;
+  }
+
+  const existingIndex = scores.findIndex(
+    (score) => s(score.student_id).trim() === nextStudentId && s(score.exam_id).trim() === nextExamId
+  );
+
+  if (existingIndex === -1) {
+    return [nextScore, ...scores];
+  }
+
+  return scores.map((score, index) => (index === existingIndex ? { ...score, ...nextScore } : score));
+}
+
+function upsertPhysicalRecordEntry(records: PhysicalRecord[], nextRecord: PhysicalRecord) {
+  const nextStudentId = s(nextRecord.student_id).trim();
+  const nextTestId = s(nextRecord.test_id).trim();
+
+  if (!nextStudentId || !nextTestId) {
+    return records;
+  }
+
+  const existingIndex = records.findIndex(
+    (record) => s(record.student_id).trim() === nextStudentId && s(record.test_id).trim() === nextTestId
+  );
+
+  if (existingIndex === -1) {
+    return [nextRecord, ...records];
+  }
+
+  return records.map((record, index) => (index === existingIndex ? { ...record, ...nextRecord } : record));
+}
+
+function mergeUniqueRecords<T>(
+  existingRecords: T[],
+  incomingRecords: T[],
+  getKey: (record: T) => string
+) {
+  const mergedRecords = new Map<string, T>();
+
+  existingRecords.forEach((record) => {
+    const key = getKey(record);
+
+    if (key) {
+      mergedRecords.set(key, record);
+    }
+  });
+
+  incomingRecords.forEach((record) => {
+    const key = getKey(record);
+
+    if (key) {
+      mergedRecords.set(key, record);
+    }
+  });
+
+  return Array.from(mergedRecords.values());
+}
+
+function buildPortalScopeKey(account: Account | null) {
+  if (!account) {
+    return "";
+  }
+
+  return [
+    normalizeRole(account.role),
+    s(account.branch_id).trim(),
+    s(account.student_id).trim(),
+    s(account.login_id).trim(),
+  ].join(":");
+}
+
 export default function Home() {
+  const sharedPortalState = usePortalSharedStore();
+  const initRef = useRef(false);
+  const portalLoadRef = useRef("");
   const [rawStudents, setRawStudents] = useState<Student[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -416,14 +849,35 @@ export default function Home() {
   const [modalMode, setModalMode] = useState<ModalMode>("add");
   const [saving, setSaving] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
+  const [restoringSession, setRestoringSession] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const [loginId, setLoginId] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [feedback, setFeedback] = useState<FeedbackState>(null);
+
+  useEffect(() => {
+    if (!feedback) {
+      return;
+    }
+
+    const timer = setTimeout(() => setFeedback(null), 4000);
+    return () => clearTimeout(timer);
+  }, [feedback]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput), 200);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    setBranches(sharedPortalState.branches);
+    setRawStudents(sharedPortalState.students);
+
+    if (sharedPortalState.accounts.length > 0) {
+      setAccounts(sharedPortalState.accounts);
+    }
+  }, [sharedPortalState.accounts, sharedPortalState.branches, sharedPortalState.hydratedAt, sharedPortalState.students]);
 
   const students = useMemo(
     () =>
@@ -438,131 +892,232 @@ export default function Home() {
   );
 
   const currentRole = normalizeRole(currentAccount?.role);
-  const currentStudentId = s(currentAccount?.student_id).trim();
-  const currentBranchId = s(currentAccount?.branch_id).trim();
+  const matchedCurrentStudent = useMemo(() => findStudentForAccount(students, currentAccount), [currentAccount, students]);
+  const currentStudentId = s(matchedCurrentStudent?.student_id).trim() || s(currentAccount?.student_id).trim();
+  const currentBranchId = useMemo(
+    () => resolveBranchId(branches, matchedCurrentStudent?.branch_id || currentAccount?.branch_id),
+    [branches, currentAccount?.branch_id, matchedCurrentStudent?.branch_id]
+  );
   const isSuperAdmin = currentRole === "super_admin";
   const isBranchManager = currentRole === "branch_manager";
   const isStudentRole = currentRole === "student";
   const canManageStudents = isSuperAdmin || isBranchManager;
+  const portalScopeKey = useMemo(() => buildPortalScopeKey(currentAccount), [currentAccount]);
 
   const getBranchLabel = (branchId: string | undefined) => {
-    const found = branches.find((b) => s(b.branch_id) === s(branchId));
-    return found ? s(found.branch_name) : branchId || "-";
+    const resolvedBranchId = resolveBranchId(branches, branchId);
+    const found = branches.find((branch) => s(branch.branch_id).trim() === resolvedBranchId);
+    return found ? s(found.branch_name).trim() : s(branchId).trim() || "-";
   };
 
-  const loadPortalData = async ({
-    mode,
-    account,
-    focusStudentId,
-  }: {
-    mode: PortalDataMode;
-    account?: Account | null;
-    focusStudentId?: string;
-  }) => {
+  const clearLocalPortalDetails = useCallback(() => {
+    setMockExams([]);
+    setMockScores([]);
+    setPhysicalTests(DEFAULT_PHYSICAL_TESTS);
+    setPhysicalRecords([]);
+  }, []);
+
+  const clearPortalState = useCallback(() => {
+    setRawStudents([]);
+    setBranches([]);
+    setAccounts([]);
+    clearLocalPortalDetails();
+    setSelectedStudentId(null);
+    resetPortalSharedStore();
+  }, [clearLocalPortalDetails]);
+
+  const loadAccounts = useCallback(async () => {
     setLoading(true);
 
     try {
-      const res = await fetch(buildPortalDataUrl(mode, account), {
+      const res = await fetch("/api/accounts", {
         method: "GET",
         cache: "no-store",
       });
       const result = await safeJson(res);
 
       if (!res.ok || result.success === false) {
-        setRawStudents([]);
-        setBranches([]);
+        const message = s(result.error).trim() || "계정 정보를 불러오지 못했습니다.";
         setAccounts([]);
-        setMockExams([]);
-        setMockScores([]);
-        setPhysicalTests(DEFAULT_PHYSICAL_TESTS);
-        setPhysicalRecords([]);
-        setSelectedStudentId(null);
-        return;
+        setFeedback({ type: "error", message });
+        return { ok: false, error: message };
       }
 
-      const nextBranches = Array.isArray(result.branches) ? (result.branches as Branch[]) : [];
-      const nextAccounts = Array.isArray(result.accounts) ? (result.accounts as Account[]) : [];
-      const nextStudents = Array.isArray(result.students) ? (result.students as Student[]) : [];
-      const nextMockExams = Array.isArray(result.mockExams) ? (result.mockExams as MockExam[]) : [];
-      const nextMockScores = Array.isArray(result.mockScores) ? (result.mockScores as MockScore[]) : [];
-      const nextPhysicalTests = normalizePhysicalTests(
-        Array.isArray(result.physicalTests) && result.physicalTests.length > 0
-          ? (result.physicalTests as PhysicalTest[])
-          : DEFAULT_PHYSICAL_TESTS
-      );
-      const nextPhysicalRecords = Array.isArray(result.physicalRecords)
-        ? (result.physicalRecords as PhysicalRecord[])
+      const nextAccounts = Array.isArray(result.accounts)
+        ? (result.accounts as Account[]).flatMap((account) => {
+            const normalizedAccount = normalizeAccountRecord(account);
+            return normalizedAccount ? [normalizedAccount] : [];
+          })
         : [];
+      setAccounts(nextAccounts);
 
       if (process.env.NODE_ENV === "development") {
-        if (mode === "auth") {
-          console.log(
-            "[accounts-debug:first-5]",
-            nextAccounts.slice(0, 5).map((account) => ({
-              login_id: s(account.login_id).trim(),
-              password_hash: s(account.password_hash).trim(),
-              is_active: s(account.is_active).trim(),
-              role: s(account.role).trim(),
-            }))
-          );
-        }
-
-        console.log("[portal-data-counts]", {
-          mode,
-          role: mode === "scoped" ? normalizeRole(account?.role) : "auth",
-          branchCount: nextBranches.length,
-          studentCount: nextStudents.length,
-          mockScoreCount: nextMockScores.length,
-          physicalRecordCount: nextPhysicalRecords.length,
-        });
+        console.log(
+          "[accounts-debug:first-5]",
+          nextAccounts.slice(0, 5).map((account) => ({
+            login_id: s(account.login_id).trim(),
+            password_hash: s(account.password_hash).trim(),
+            is_active: s(account.is_active).trim(),
+            role: s(account.role).trim(),
+          }))
+        );
       }
 
-      setBranches(nextBranches);
-      if (mode === "auth") {
-        setAccounts(nextAccounts);
-      }
-      setRawStudents(nextStudents);
-      setMockExams(nextMockExams);
-      setMockScores(nextMockScores);
-      setPhysicalTests(nextPhysicalTests);
-      setPhysicalRecords(nextPhysicalRecords);
-      setSelectedStudentId((prev) => {
-        if (focusStudentId && nextStudents.some((st) => s(st.student_id) === s(focusStudentId))) {
-          return focusStudentId;
-        }
-        if (prev && nextStudents.some((st) => s(st.student_id) === s(prev))) {
-          return prev;
-        }
-        return nextStudents[0]?.student_id ? s(nextStudents[0].student_id) : null;
-      });
-    } catch {
-      setRawStudents([]);
-      setBranches([]);
+      return { ok: true };
+    } catch (error) {
+      const message = getErrorMessage(error, "계정 정보를 불러오지 못했습니다.");
       setAccounts([]);
-      setMockExams([]);
-      setMockScores([]);
-      setPhysicalTests(DEFAULT_PHYSICAL_TESTS);
-      setPhysicalRecords([]);
-      setSelectedStudentId(null);
+      setFeedback({ type: "error", message });
+      return { ok: false, error: message };
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadPortalData({ mode: "auth" });
   }, []);
 
+  const loadPortalData = useCallback(async ({
+    account,
+    focusStudentId,
+  }: {
+    account: Account;
+    focusStudentId?: string;
+  }) => {
+    const resolvedAccount = hydrateAccountBranchId(account, accounts);
+
+    if (!resolvedAccount) {
+      return { ok: false, error: "계정 정보를 확인할 수 없습니다." };
+    }
+
+    if (!isSameAccount(account, resolvedAccount)) {
+      setCurrentAccount(resolvedAccount);
+      persistAccountSession(resolvedAccount);
+    }
+
+    if (normalizeRole(resolvedAccount.role) === "student" && !resolveAccountBranchId(resolvedAccount)) {
+      return { ok: false, error: "student 계정의 branch_id가 없습니다." };
+    }
+
+    setLoading(true);
+    clearLocalPortalDetails();
+
+    try {
+      const lightData = await ensurePortalSharedLightData(async () => {
+        const res = await fetch(buildPortalDataUrl(resolvedAccount), {
+          method: "GET",
+          cache: "no-store",
+        });
+        const result = await safeJson(res);
+
+        if (!res.ok || result.success === false) {
+          throw new Error(s(result.error).trim() || "포털 데이터를 불러오지 못했습니다.");
+        }
+
+        const nextBranches = normalizeBranches(Array.isArray(result.branches) ? (result.branches as Branch[]) : []);
+        const nextStudents = Array.isArray(result.students)
+          ? (result.students as Student[]).map((student) => normalizeStudentRecord(student, nextBranches))
+          : [];
+
+        if (process.env.NODE_ENV === "development") {
+          console.log("[portal-data-counts]", {
+            role: normalizeRole(resolvedAccount.role),
+            branchCount: nextBranches.length,
+            studentCount: nextStudents.length,
+          });
+        }
+
+        return {
+          branches: nextBranches,
+          students: nextStudents.filter(isValidStudentRecord),
+        };
+      });
+
+      setBranches(lightData.branches);
+      setRawStudents(lightData.students);
+      setSelectedStudentId((prev) => {
+        if (focusStudentId && lightData.students.some((st) => s(st.student_id).trim() === s(focusStudentId).trim())) {
+          return focusStudentId;
+        }
+        if (prev && lightData.students.some((st) => s(st.student_id).trim() === s(prev).trim())) {
+          return prev;
+        }
+
+        const firstValidStudent = lightData.students.find(isValidStudentRecord);
+        return firstValidStudent ? getStudentPreferredSelectionId(firstValidStudent) : null;
+      });
+
+      return { ok: true };
+    } catch (error) {
+      const message = getErrorMessage(error, "포털 데이터를 불러오지 못했습니다.");
+      clearPortalState();
+      setFeedback({ type: "error", message });
+      return { ok: false, error: message };
+    } finally {
+      setLoading(false);
+    }
+  }, [accounts, clearLocalPortalDetails, clearPortalState]);
+
   useEffect(() => {
-    if (!currentAccount) {
+    if (initRef.current) {
       return;
     }
 
-    loadPortalData({
-      mode: "scoped",
-      account: currentAccount,
-      focusStudentId: s(currentAccount.student_id).trim() || undefined,
-    });
+    initRef.current = true;
+
+    const savedAccount = readStoredAccountSession();
+    const restoredAccount = savedAccount ? buildAccountFromSession(savedAccount) : null;
+
+    if (restoredAccount) {
+      setRestoringSession(true);
+      setCurrentAccount(restoredAccount);
+      return;
+    }
+
+    void loadAccounts();
+  }, [loadAccounts]);
+
+  useEffect(() => {
+    if (!currentAccount || !portalScopeKey) {
+      return;
+    }
+
+    if (portalLoadRef.current === portalScopeKey && (sharedPortalState.isLoaded || sharedPortalState.isLoading)) {
+      return;
+    }
+
+    portalLoadRef.current = portalScopeKey;
+
+    let cancelled = false;
+
+    const loadScopedPortalData = async () => {
+      const result = await loadPortalData({
+        account: currentAccount,
+        focusStudentId: s(currentAccount.student_id).trim() || undefined,
+      });
+
+      if (cancelled) {
+        return;
+      }
+
+      if (result?.ok === false && restoringSession) {
+        setRestoringSession(false);
+        setCurrentAccount(null);
+        void loadAccounts();
+        return;
+      }
+
+      if (restoringSession) {
+        setRestoringSession(false);
+      }
+    };
+
+    loadScopedPortalData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentAccount, loadAccounts, loadPortalData, portalScopeKey, restoringSession, sharedPortalState.isLoaded, sharedPortalState.isLoading]);
+
+  useEffect(() => {
+    syncPortalSharedCurrentAccount(currentAccount);
   }, [currentAccount]);
 
   useEffect(() => {
@@ -570,53 +1125,49 @@ export default function Home() {
       return;
     }
 
-    try {
-      const savedAccountText = sessionStorage.getItem(PORTAL_ACCOUNT_SESSION_KEY);
+    const savedAccount = readStoredAccountSession();
+    const savedAccountId = s(savedAccount?.account_id).trim();
+    const savedLoginId = s(savedAccount?.login_id).trim();
 
-      if (savedAccountText) {
-        const savedAccount = JSON.parse(savedAccountText) as Partial<AccountSession>;
-        const savedAccountId = s(savedAccount.account_id).trim();
-        const savedLoginId = s(savedAccount.login_id).trim();
-        const matchedAccount = accounts.find((account) => {
-          if (!isTruthy(account.is_active)) {
-            return false;
-          }
-
-          if (savedAccountId && s(account.account_id).trim() === savedAccountId) {
-            return true;
-          }
-
-          return savedLoginId !== "" && s(account.login_id).trim() === savedLoginId;
-        });
-
-        if (matchedAccount) {
-          setCurrentAccount(matchedAccount);
-          return;
-        }
+    const matchedAccount = accounts.find((account) => {
+      if (!isTruthy(account.is_active)) {
+        return false;
       }
 
-      const legacyLoginId = sessionStorage.getItem("portal_login_id");
-      if (!legacyLoginId) {
-        return;
+      if (savedAccountId && s(account.account_id).trim() === savedAccountId) {
+        return true;
       }
 
-      const matchedAccount = accounts.find(
-        (account) => s(account.login_id).trim() === s(legacyLoginId).trim() && isTruthy(account.is_active)
-      );
+      return savedLoginId !== "" && s(account.login_id).trim() === savedLoginId;
+    });
 
-      if (matchedAccount) {
-        setCurrentAccount(matchedAccount);
+    if (matchedAccount) {
+      const hydratedAccount = hydrateAccountBranchId(matchedAccount, accounts);
+
+      if (hydratedAccount) {
+        setCurrentAccount(hydratedAccount);
+        persistAccountSession(hydratedAccount);
       }
-    } catch {}
+    }
   }, [accounts]);
+
+  useEffect(() => {
+    if (!currentAccount || accounts.length === 0) {
+      return;
+    }
+
+    const hydratedAccount = hydrateAccountBranchId(currentAccount, accounts);
+
+    if (hydratedAccount && !isSameAccount(currentAccount, hydratedAccount)) {
+      setCurrentAccount(hydratedAccount);
+      persistAccountSession(hydratedAccount);
+    }
+  }, [accounts, currentAccount]);
 
   useEffect(() => {
     if (!currentAccount) {
       return;
     }
-
-    const currentStudentId = s(currentAccount.student_id).trim();
-    const currentBranchId = s(currentAccount.branch_id).trim();
 
     if (currentBranchId) {
       setBranchFilter(currentBranchId);
@@ -625,23 +1176,23 @@ export default function Home() {
     if (currentStudentId) {
       setSelectedStudentId(currentStudentId);
     }
-  }, [currentAccount]);
+  }, [currentAccount, currentBranchId, currentStudentId]);
 
   const scopedStudents = useMemo(() => {
     if (!currentAccount) {
-      return students;
+      return students.filter(isValidStudentRecord);
     }
 
     if (isSuperAdmin) {
-      return students;
+      return students.filter(isValidStudentRecord);
     }
 
     if (isBranchManager) {
-      return students.filter((student) => s(student.branch_id).trim() === currentBranchId);
+      return students.filter((student) => isValidStudentRecord(student) && s(student.branch_id).trim() === currentBranchId);
     }
 
     if (isStudentRole) {
-      return students.filter((student) => s(student.student_id).trim() === currentStudentId);
+      return students.filter((student) => isValidStudentRecord(student) && s(student.student_id).trim() === currentStudentId);
     }
 
     return [];
@@ -724,39 +1275,55 @@ export default function Home() {
   };
 
   const blockUnauthorizedAction = (message: string) => {
-    alert(message);
+    setFeedback({ type: "error", message });
   };
 
   const selectedStudent = useMemo(
-    () => scopedStudents.find((st) => s(st.student_id) === s(selectedStudentId)) || null,
+    () => scopedStudents.find((st) => matchesStudentSelection(st, selectedStudentId)) || null,
     [scopedStudents, selectedStudentId]
   );
 
+  const dashboardStudent = useMemo(() => {
+    if (selectedStudent) {
+      return selectedStudent;
+    }
+
+    if (isStudentRole) {
+      return scopedStudents[0] || matchedCurrentStudent || null;
+    }
+
+    return null;
+  }, [isStudentRole, matchedCurrentStudent, scopedStudents, selectedStudent]);
+
   const selectedStudentMockChartData = useMemo<StudentMockChartPoint[]>(() => {
-    if (!selectedStudent?.student_id) {
+    const targetStudentId = s((isStudentRole ? dashboardStudent : selectedStudent)?.student_id).trim();
+
+    if (!targetStudentId) {
       return [];
     }
 
     return getStudentMockChartData({
-      studentId: s(selectedStudent.student_id),
+      studentId: targetStudentId,
       mockScores: scopedMockScores,
       mockExams,
-      debug: true,
+      debug: false,
     });
-  }, [mockExams, scopedMockScores, selectedStudent?.student_id]);
+  }, [dashboardStudent, isStudentRole, mockExams, scopedMockScores, selectedStudent]);
 
   const selectedStudentPhysicalChartData = useMemo<StudentPhysicalChartPoint[]>(() => {
-    if (!selectedStudent?.student_id) {
+    const targetStudentId = s((isStudentRole ? dashboardStudent : selectedStudent)?.student_id).trim();
+
+    if (!targetStudentId) {
       return [];
     }
 
     return getStudentPhysicalChartData({
-      studentId: s(selectedStudent.student_id),
+      studentId: targetStudentId,
       physicalRecords: scopedPhysicalRecords,
       physicalTests,
-      debug: true,
+      debug: false,
     });
-  }, [physicalTests, scopedPhysicalRecords, selectedStudent?.student_id]);
+  }, [dashboardStudent, isStudentRole, physicalTests, scopedPhysicalRecords, selectedStudent]);
 
   const branchOptions = useMemo(
     () => (isSuperAdmin ? ["ALL", ...scopedBranches.map((b) => s(b.branch_id)).filter(Boolean)] : scopedBranches.map((b) => s(b.branch_id)).filter(Boolean)),
@@ -767,6 +1334,10 @@ export default function Home() {
     const keyword = search.trim();
 
     const filtered = scopedStudents.filter((st) => {
+      if (!isValidStudentRecord(st)) {
+        return false;
+      }
+
       const matchesSearch =
         keyword === "" ||
         s(st.name).includes(keyword) ||
@@ -801,19 +1372,20 @@ export default function Home() {
       default:
         break;
     }
-    return sorted;
+
+    return dedupeStudents(sorted);
   }, [scopedStudents, search, branchFilter, statusFilter, sortType]);
 
   useEffect(() => {
     if (!selectedStudentId && filteredStudents.length > 0) {
-      setSelectedStudentId(s(filteredStudents[0].student_id));
+      setSelectedStudentId(getStudentPreferredSelectionId(filteredStudents[0]));
       return;
     }
     if (
       selectedStudentId &&
-      !filteredStudents.some((st) => s(st.student_id) === s(selectedStudentId))
+      !filteredStudents.some((st) => matchesStudentSelection(st, selectedStudentId))
     ) {
-      setSelectedStudentId(filteredStudents[0]?.student_id ? s(filteredStudents[0].student_id) : null);
+      setSelectedStudentId(filteredStudents[0] ? getStudentPreferredSelectionId(filteredStudents[0]) : null);
     }
   }, [filteredStudents, selectedStudentId]);
 
@@ -844,20 +1416,6 @@ export default function Home() {
     const active = filteredStudents.filter((st) => s(st.status).toLowerCase() === "active").length;
     return { avg80, koreanTop, mathTop, active };
   }, [filteredStudents]);
-
-  const branchStats = useMemo(() => {
-    return scopedBranches.map((branch) => {
-      const studentsInBranch = scopedStudents.filter((st) => s(st.branch_id) === s(branch.branch_id));
-      const count = studentsInBranch.length;
-      const avg = count === 0 ? 0 : studentsInBranch.reduce((acc, cur) => acc + getAverageNumber(cur), 0) / count;
-      return {
-        branch_id: s(branch.branch_id),
-        branch_name: s(branch.branch_name),
-        count,
-        avg: avg.toFixed(1),
-      };
-    });
-  }, [scopedBranches, scopedStudents]);
 
   const subjectStats = useMemo(() => {
     const avgOf = (key: keyof Student) => {
@@ -890,27 +1448,197 @@ export default function Home() {
     [scopedStudents]
   );
 
-  const selectedAverage = selectedStudent ? getAverageNumber(selectedStudent).toFixed(1) : "-";
-
   const selectedIndex = useMemo(
-    () => filteredStudents.findIndex((st) => s(st.student_id) === s(selectedStudentId)),
+    () => filteredStudents.findIndex((st) => matchesStudentSelection(st, selectedStudentId)),
     [filteredStudents, selectedStudentId]
   );
 
-  const moveSelection = (direction: "prev" | "next") => {
-    if (filteredStudents.length === 0) return;
-    if (selectedIndex === -1) {
-      setSelectedStudentId(s(filteredStudents[0].student_id));
+  const applyStudentDetails = useCallback((details: {
+    mockExams: MockExam[];
+    mockScores: MockScore[];
+    physicalTests: PhysicalTest[];
+    physicalRecords: PhysicalRecord[];
+  }) => {
+    setMockExams((prev) => mergeUniqueRecords(prev, details.mockExams, (exam) => s(exam.exam_id).trim()));
+    setMockScores((prev) =>
+      mergeUniqueRecords(
+        prev,
+        details.mockScores.map((score) => normalizeBranchScopedRow(score, branches)),
+        (score) => `${s(score.student_id).trim()}:${s(score.exam_id).trim()}`
+      )
+    );
+    setPhysicalTests((prev) =>
+      normalizePhysicalTests(mergeUniqueRecords(prev, details.physicalTests, (test) => s(test.test_id).trim()))
+    );
+    setPhysicalRecords((prev) =>
+      mergeUniqueRecords(
+        prev,
+        details.physicalRecords.map((record) => normalizeBranchScopedRow(record, branches)),
+        (record) => `${s(record.student_id).trim()}:${s(record.test_id).trim()}`
+      )
+    );
+  }, [branches]);
+
+  const loadStudentDetails = useCallback(async (studentId: string) => {
+    let normalizedStudentId = "";
+
+    try {
+      normalizedStudentId = normalizeStudentId(studentId);
+    } catch {
+      setFeedback({
+        type: "error",
+        message: "Invalid student_id",
+      });
+      return null;
+    }
+
+    if (!currentAccount) {
+      return null;
+    }
+
+    const targetStudent =
+      scopedStudents.find((student) => s(student.student_id).trim() === normalizedStudentId) ||
+      students.find((student) => s(student.student_id).trim() === normalizedStudentId) ||
+      null;
+    const detailBranchId = resolveBranchId(
+      branches,
+      resolveAccountBranchId(currentAccount, targetStudent?.branch_id || currentBranchId)
+    );
+
+    if (normalizeRole(currentAccount.role) === "student" && !detailBranchId) {
+      console.warn("Missing branch_id for student account");
+      setFeedback({
+        type: "error",
+        message: "student 계정의 branch_id가 없어 상세 데이터를 불러올 수 없습니다.",
+      });
+      return null;
+    }
+
+    if (hasPortalSharedStudentDetails(normalizedStudentId)) {
+      const cachedDetails = getPortalSharedStudentDetails(normalizedStudentId);
+
+      if (cachedDetails) {
+        applyStudentDetails(cachedDetails);
+        return cachedDetails;
+      }
+    }
+
+    setDetailsLoading(true);
+
+    try {
+      const details = await ensurePortalSharedStudentDetails(normalizedStudentId, async () => {
+        const response = await fetch(buildPortalDetailUrl(normalizedStudentId, currentAccount, detailBranchId), {
+          method: "GET",
+          cache: "no-store",
+        });
+        const result = await safeJson(response);
+
+        if (!response.ok || result.success === false) {
+          throw new Error(s(result.error).trim() || "상세 데이터를 불러오지 못했습니다.");
+        }
+
+        return {
+          mockExams: Array.isArray(result.mockExams) ? (result.mockExams as MockExam[]) : [],
+          mockScores: Array.isArray(result.mockScores) ? (result.mockScores as MockScore[]) : [],
+          physicalTests: normalizePhysicalTests(
+            Array.isArray(result.physicalTests) && result.physicalTests.length > 0
+              ? (result.physicalTests as PhysicalTest[])
+              : DEFAULT_PHYSICAL_TESTS
+          ),
+          physicalRecords: Array.isArray(result.physicalRecords)
+            ? (result.physicalRecords as PhysicalRecord[])
+            : [],
+        };
+      });
+
+      applyStudentDetails(details);
+      return details;
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: getErrorMessage(error, "상세 데이터를 불러오지 못했습니다."),
+      });
+      return null;
+    } finally {
+      setDetailsLoading(false);
+    }
+  }, [applyStudentDetails, branches, currentAccount, currentBranchId, scopedStudents, students]);
+
+  useEffect(() => {
+    if (!isStudentRole || !dashboardStudent) {
       return;
     }
+
+    const dashboardStudentId = s(dashboardStudent.student_id).trim();
+
+    if (!dashboardStudentId) {
+      return;
+    }
+
+    if (selectedStudentId !== dashboardStudentId) {
+      setSelectedStudentId(dashboardStudentId);
+    }
+
+    if (!hasPortalSharedStudentDetails(dashboardStudentId)) {
+      void loadStudentDetails(dashboardStudentId);
+    }
+  }, [dashboardStudent, isStudentRole, loadStudentDetails, selectedStudentId]);
+
+  const handleSelectStudent = useCallback((studentId: string) => {
+    try {
+      const normalizedStudentId = normalizeStudentId(studentId);
+      setSelectedStudentId(normalizedStudentId);
+      void loadStudentDetails(normalizedStudentId);
+    } catch {
+      setFeedback({ type: "error", message: "Invalid student_id" });
+    }
+  }, [loadStudentDetails]);
+
+  const handleOpenDetail = useCallback((studentId?: string | number | null) => {
+    const requestedStudentId =
+      typeof studentId === "string" || typeof studentId === "number" ? String(studentId) : "";
+    let nextStudentId = "";
+
+    try {
+      nextStudentId = normalizeStudentId(requestedStudentId || selectedStudentId || "");
+    } catch {
+      setFeedback({ type: "error", message: "Invalid student_id" });
+      return;
+    }
+
+    if (!nextStudentId) {
+      return;
+    }
+
+    setSelectedStudentId(nextStudentId);
+    void loadStudentDetails(nextStudentId);
+    setIsDetailPopupOpen(true);
+  }, [loadStudentDetails, selectedStudentId]);
+
+  const moveSelection = useCallback((direction: "prev" | "next") => {
+    if (filteredStudents.length === 0) return;
+    if (selectedIndex === -1) {
+      const firstStudentId = getStudentPreferredSelectionId(filteredStudents[0]);
+      setSelectedStudentId(firstStudentId);
+      if (firstStudentId) {
+        void loadStudentDetails(firstStudentId);
+      }
+      return;
+    }
+
     const nextIndex =
       direction === "prev"
         ? Math.max(0, selectedIndex - 1)
         : Math.min(filteredStudents.length - 1, selectedIndex + 1);
-    setSelectedStudentId(s(filteredStudents[nextIndex].student_id));
-  };
 
-  const openAddModal = () => {
+    const nextStudentId = getStudentPreferredSelectionId(filteredStudents[nextIndex]);
+    setSelectedStudentId(nextStudentId);
+    if (nextStudentId) {
+      void loadStudentDetails(nextStudentId);
+    }
+  }, [filteredStudents, loadStudentDetails, selectedIndex]);
+
+  const openAddModal = useCallback(() => {
     if (!canManageStudents) {
       blockUnauthorizedAction("학생 추가 권한이 없습니다.");
       return;
@@ -918,7 +1646,7 @@ export default function Home() {
 
     setModalMode("add");
     setIsModalOpen(true);
-  };
+  }, [canManageStudents]);
 
   const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -956,31 +1684,45 @@ export default function Home() {
       return;
     }
 
-    setCurrentAccount(matchedAccount);
-    setLoginError("");
+    const nextAccount = hydrateAccountBranchId(matchedAccount, accounts) || normalizeAccountRecord(matchedAccount);
 
-    try {
-      sessionStorage.setItem(PORTAL_ACCOUNT_SESSION_KEY, JSON.stringify(buildAccountSession(matchedAccount)));
-      sessionStorage.setItem("portal_login_id", s(matchedAccount.login_id));
-    } catch {}
+    if (!nextAccount) {
+      setLoginError("로그인 계정 정보를 정리하지 못했습니다.");
+      return;
+    }
+
+    if (normalizeRole(nextAccount.role) === "student" && !resolveAccountBranchId(nextAccount)) {
+      console.warn("Missing branch_id for student account");
+    }
+
+    setCurrentAccount(nextAccount);
+    setLoginError("");
+    persistAccountSession(nextAccount);
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     setCurrentAccount(null);
     setLoginId("");
     setLoginPassword("");
     setLoginError("");
     setBranchFilter("ALL");
+    setFeedback(null);
+    setIsDetailPopupOpen(false);
+    setIsModalOpen(false);
+    setSelectedStudentId(null);
+    clearLocalPortalDetails();
+    portalLoadRef.current = "";
 
     try {
       sessionStorage.removeItem(PORTAL_ACCOUNT_SESSION_KEY);
       sessionStorage.removeItem("portal_login_id");
     } catch {}
 
-    loadPortalData({ mode: "auth" });
-  };
+    resetPortalSharedStore();
+    void loadAccounts();
+  }, [clearLocalPortalDetails, loadAccounts]);
 
-  const openEditModal = () => {
+  const openEditModal = useCallback(async () => {
     if (!canManageStudents) {
       blockUnauthorizedAction("학생 수정 권한이 없습니다.");
       return;
@@ -996,9 +1738,15 @@ export default function Home() {
       return;
     }
 
+    const nextStudentId = getStudentPreferredSelectionId(selectedStudent);
+
+    if (nextStudentId) {
+      await loadStudentDetails(nextStudentId);
+    }
+
     setModalMode("edit");
     setIsModalOpen(true);
-  };
+  }, [canAccessStudentRecord, canManageStudents, loadStudentDetails, selectedStudent]);
 
   const handleModalSave = async (student: Student): Promise<Student | null> => {
     if (!canManageStudents) {
@@ -1022,38 +1770,70 @@ export default function Home() {
 
     try {
       setSaving(true);
+      setFeedback(null);
       const existingStudent = rawStudents.find(
         (item) => s(item.student_id).trim() === s(nextStudentInput.student_id).trim()
       );
       const nextStudentRow = buildStudentSheetRow(nextStudentInput, existingStudent);
 
-      await savePortalRow({
-        sheetName: "students",
-        keyField: "student_id",
-        row: nextStudentRow,
-      });
+      if (process.env.NODE_ENV === "development") {
+        console.info("[handleModalSave] payload", nextStudentRow);
+      }
 
-      setIsModalOpen(false);
+      const saveResult = await saveStudent(nextStudentRow);
 
-      setRawStudents((prev) => {
-        const existingIndex = prev.findIndex(
-          (item) => s(item.student_id).trim() === s(nextStudentRow.student_id).trim()
-        );
+      if (saveResult.success !== true && saveResult.ok !== true) {
+        const message =
+          saveResult.error ||
+          ("message" in saveResult && typeof saveResult.message === "string" ? saveResult.message : "") ||
+          "학생 저장 중 오류가 발생했습니다.";
 
-        if (existingIndex >= 0) {
-          const nextStudents = [...prev];
-          nextStudents[existingIndex] = nextStudentRow;
-          return nextStudents;
+        if (process.env.NODE_ENV === "development") {
+          console.info("[handleModalSave] failure", {
+            student_id: nextStudentRow.student_id,
+            name: nextStudentRow.name,
+            message,
+          });
         }
 
-        return [...prev, nextStudentRow];
+        setFeedback({ type: "error", message });
+        return null;
+      }
+
+      if (process.env.NODE_ENV === "development") {
+        console.info("[handleModalSave] success", {
+          student_id: nextStudentRow.student_id,
+          name: nextStudentRow.name,
+        });
+      }
+
+      const savedStudent = normalizeStudentRecord(
+        ((saveResult.data as Student | undefined) || nextStudentRow) as Student,
+        branches
+      );
+
+      removePortalSharedStudentDetails(s(savedStudent.student_id).trim());
+      setRawStudents((prev) => upsertStudentRecord(prev, savedStudent));
+      upsertPortalSharedStudent(savedStudent);
+      setSelectedStudentId(s(savedStudent.student_id).trim());
+      setFeedback({
+        type: "success",
+        message: modalMode === "add" ? "학생을 추가했습니다." : "학생 정보를 저장했습니다.",
       });
-      setSelectedStudentId(s(nextStudentRow.student_id));
-      return nextStudentRow;
+
+      return savedStudent;
     } catch (error) {
+      const message = getErrorMessage(error, "학생 저장 중 오류가 발생했습니다.");
       console.error(error);
-      alert("저장 중 오류가 발생했습니다.");
-      throw error;
+      if (process.env.NODE_ENV === "development") {
+        console.info("[handleModalSave] failure", {
+          student_id: student.student_id,
+          name: student.name,
+          message,
+        });
+      }
+      setFeedback({ type: "error", message });
+      return null;
     } finally {
       setSaving(false);
     }
@@ -1062,7 +1842,8 @@ export default function Home() {
   const handleExamScoreSave = async (
     examId: string,
     scores: Partial<Student>,
-    targetStudent?: Pick<Student, "student_id" | "name" | "branch_id">
+    targetStudent?: Pick<Student, "student_id" | "name" | "branch_id">,
+    options?: SaveHandlerOptions
   ) => {
     if (!canManageStudents) {
       throw new Error("시험 성적 저장 권한이 없습니다.");
@@ -1103,28 +1884,20 @@ export default function Home() {
       nextScoreRow[fieldName] = s(scores[fieldName as keyof Student]).trim();
     });
 
-    await savePortalRow({
-      sheetName: "mock_scores",
-      keyField: "score_id",
-      row: nextScoreRow as Record<string, unknown>,
-    });
+    await saveMockScore(nextScoreRow);
 
-    setMockScores((prev) => {
-      const existingIndex = prev.findIndex(
-        (item) => s(item.score_id).trim() === s(nextScoreRow.score_id).trim()
-      );
+  removePortalSharedStudentDetails(studentContext.student_id);
+    setMockScores((prev) => upsertMockScoreRecord(prev, normalizeBranchScopedRow(nextScoreRow, branches)));
 
-      if (existingIndex >= 0) {
-        const nextScores = [...prev];
-        nextScores[existingIndex] = nextScoreRow;
-        return nextScores;
-      }
-
-      return [...prev, nextScoreRow];
-    });
+    if (!options?.skipRefresh && !options?.suppressFeedback) {
+      setFeedback({
+        type: "success",
+        message: "시험 성적을 저장했습니다.",
+      });
+    }
   };
 
-  const handlePhysicalRecordSave = async (record: PhysicalRecord) => {
+  const handlePhysicalRecordSave = async (record: PhysicalRecord, options?: SaveHandlerOptions) => {
     if (!canManageStudents) {
       throw new Error("실기 기록 저장 권한이 없습니다.");
     }
@@ -1157,25 +1930,17 @@ export default function Home() {
       updated_at: now,
     };
 
-    await savePortalRow({
-      sheetName: "physical_records",
-      keyField: "record_id",
-      row: nextRecord as Record<string, unknown>,
-    });
+    await savePhysicalRecord(nextRecord);
 
-    setPhysicalRecords((prev) => {
-      const existingIndex = prev.findIndex(
-        (item) => s(item.record_id).trim() === s(nextRecord.record_id).trim()
-      );
+  removePortalSharedStudentDetails(s(nextRecord.student_id).trim());
+    setPhysicalRecords((prev) => upsertPhysicalRecordEntry(prev, normalizeBranchScopedRow(nextRecord, branches)));
 
-      if (existingIndex >= 0) {
-        const nextRecords = [...prev];
-        nextRecords[existingIndex] = nextRecord;
-        return nextRecords;
-      }
-
-      return [...prev, nextRecord];
-    });
+    if (!options?.skipRefresh && !options?.suppressFeedback) {
+      setFeedback({
+        type: "success",
+        message: "실기 기록을 저장했습니다.",
+      });
+    }
   };
 
   const handleDelete = async () => {
@@ -1189,7 +1954,49 @@ export default function Home() {
       return;
     }
 
-    alert("현재 구글시트 연동 단계에서는 삭제 기능이 연결되어 있지 않습니다.");
+    if (!selectedStudent) {
+      blockUnauthorizedAction("삭제할 학생을 먼저 선택하세요.");
+      return;
+    }
+
+    const confirmed = window.confirm(`${s(selectedStudent.name)} 학생을 삭제하시겠습니까?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const deletedStudentId = s(selectedStudent.student_id).trim();
+      const result = await deleteStudentRecord(deletedStudentId);
+
+      if (!result.ok) {
+        throw new Error(result.error || "학생 삭제에 실패했습니다.");
+      }
+
+      const remainingStudents = rawStudents.filter(
+        (student) => s(student.student_id).trim() !== deletedStudentId
+      );
+      const nextSelectedStudent = remainingStudents.find((student) => canAccessStudentRecord(student)) || null;
+
+      setRawStudents(remainingStudents);
+  removePortalSharedStudentDetails(deletedStudentId);
+      removePortalSharedStudent(deletedStudentId);
+      setMockScores((prev) => prev.filter((score) => s(score.student_id).trim() !== deletedStudentId));
+      setPhysicalRecords((prev) => prev.filter((record) => s(record.student_id).trim() !== deletedStudentId));
+      setSelectedStudentId(nextSelectedStudent ? getStudentPreferredSelectionId(nextSelectedStudent) : null);
+      setFeedback({
+        type: "success",
+        message: "학생을 삭제했습니다.",
+      });
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: getErrorMessage(error, "학생 삭제 중 오류가 발생했습니다."),
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const downloadCsv = (rows: Student[], filename: string) => {
@@ -1373,25 +2180,41 @@ export default function Home() {
     return (
       <main style={styles.page}>
         <div style={styles.container}>
-          <div style={{ maxWidth: 420, margin: "80px auto", background: "#ffffff", borderRadius: 18, padding: 28, boxShadow: "0 18px 42px rgba(15, 23, 42, 0.12)", border: "1px solid #dbe7f3" }}>
-            <p style={styles.badge}>FINAL 관리자 시스템</p>
-            <h1 style={{ margin: "12px 0 8px", fontSize: 28, color: "#0f172a" }}>로그인</h1>
-            <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>accounts 시트의 login_id / password_hash / is_active 구조를 사용합니다.</p>
+          <div style={{ maxWidth: 430, margin: "72px auto", background: portalTheme.gradients.card, borderRadius: 24, padding: "38px 30px 30px", boxShadow: portalTheme.shadows.modal, border: `1px solid ${portalTheme.colors.line}` }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+              <Image
+                src="/logo.png"
+                alt="FINAL SPORTS ACADEMY"
+                width={160}
+                height={60}
+                priority
+                sizes="(max-width: 640px) 130px, 160px"
+                style={{ width: "min(164px, 38vw)", maxWidth: 164, minWidth: 130, height: "auto" }}
+              />
+            </div>
+            <div style={{ textAlign: "center", marginBottom: 12 }}>
+              <p style={{ ...styles.badge, marginBottom: 10, background: portalTheme.colors.primarySoft, color: portalTheme.colors.primary }}>FINAL PORTAL</p>
+              <div style={{ fontSize: 19, fontWeight: 900, color: portalTheme.colors.textStrong, letterSpacing: "0.06em" }}>FINAL SPORTS ACADEMY</div>
+              <div style={{ marginTop: 8, fontSize: 13, color: portalTheme.colors.textMuted, lineHeight: 1.6 }}>학생과 관리자 계정을 위한 통합 성적 포털</div>
+            </div>
+            <h1 style={{ margin: "16px 0 8px", fontSize: 28, color: portalTheme.colors.textStrong, textAlign: "center" }}>로그인</h1>
             <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 24 }}>
+              <label style={{ fontSize: 14, fontWeight: 800, color: portalTheme.colors.textStrong }}>아이디</label>
               <input
                 value={loginId}
                 onChange={(e) => setLoginId(e.target.value)}
-                placeholder="login_id"
+                placeholder="아이디"
                 style={styles.searchInput}
               />
+              <label style={{ fontSize: 14, fontWeight: 800, color: portalTheme.colors.textStrong, marginTop: 4 }}>패스워드</label>
               <input
                 type="password"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder="password_hash"
+                placeholder="패스워드"
                 style={styles.searchInput}
               />
-              {loginError ? <div style={{ color: "#b91c1c", fontSize: 13 }}>{loginError}</div> : null}
+              {loginError ? <div style={{ color: portalTheme.colors.dangerText, fontSize: 13 }}>{loginError}</div> : null}
               <button type="submit" style={{ ...styles.addButton, width: "100%", justifyContent: "center" }}>
                 로그인
               </button>
@@ -1406,10 +2229,10 @@ export default function Home() {
     return (
       <main style={styles.page}>
         <div style={styles.container}>
-          <div style={{ maxWidth: 520, margin: "80px auto", background: "#ffffff", borderRadius: 18, padding: 28, boxShadow: "0 18px 42px rgba(15, 23, 42, 0.12)", border: "1px solid #dbe7f3" }}>
+          <div style={{ maxWidth: 520, margin: "80px auto", background: portalTheme.gradients.card, borderRadius: 20, padding: 28, boxShadow: portalTheme.shadows.cardStrong, border: `1px solid ${portalTheme.colors.line}` }}>
             <p style={styles.badge}>권한 확인 필요</p>
-            <h1 style={{ margin: "12px 0 8px", fontSize: 28, color: "#0f172a" }}>접근 불가</h1>
-            <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>{accessIssueMessage}</p>
+            <h1 style={{ margin: "12px 0 8px", fontSize: 28, color: portalTheme.colors.textStrong }}>접근 불가</h1>
+            <p style={{ margin: 0, color: portalTheme.colors.textMuted, fontSize: 14 }}>{accessIssueMessage}</p>
             <div style={{ marginTop: 20 }}>
               <button style={styles.secondaryButton} onClick={handleLogout}>
                 로그아웃
@@ -1463,303 +2286,63 @@ export default function Home() {
           </div>
         </header>
 
-        {!isStudentRole ? (
-          <>
-        <section style={styles.summaryGrid}>
-          <div style={styles.summaryCard}>
-            <span style={styles.summaryLabel}>표시 학생 수</span>
-            <strong style={styles.summaryValue}>{summary.count}명</strong>
-          </div>
-          <div style={styles.summaryCard}>
-            <span style={styles.summaryLabel}>활성 학생 수</span>
-            <strong style={styles.summaryValue}>{summary.activeCount}명</strong>
-          </div>
-          <div style={styles.summaryCard}>
-            <span style={styles.summaryLabel}>전체 평균</span>
-            <strong style={styles.summaryValue}>{summary.avgScore}</strong>
-          </div>
-          <div style={styles.summaryCard}>
-            <span style={styles.summaryLabel}>최고 평균</span>
-            <strong style={styles.summaryValue}>{summary.topAvg}</strong>
-          </div>
-        </section>
-
-        <section style={styles.quickStatsWrap}>
-          <div style={styles.quickChip}>평균 80↑ {quickStats.avg80}명</div>
-          <div style={styles.quickChip}>국어 1~2등급 {quickStats.koreanTop}명</div>
-          <div style={styles.quickChip}>수학 1~2등급 {quickStats.mathTop}명</div>
-          <div style={styles.quickChip}>활성 학생 {quickStats.active}명</div>
-        </section>
-
-        <section style={styles.statsSection}>
-          <div style={styles.statsCard}>
-            <h3 style={styles.statsTitle}>지점별 현황</h3>
-            {branchStats.length === 0 ? (
-              <div style={styles.stateBox}>지점 데이터가 없습니다.</div>
-            ) : (
-              branchStats.map((item) => (
-                <div key={item.branch_id} style={styles.statsRow}>
-                  <span>{item.branch_name}</span>
-                  <span>{item.count}명 / 평균 {item.avg}</span>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div style={styles.statsCard}>
-            <h3 style={styles.statsTitle}>과목별 평균</h3>
-            <div style={styles.statsRow}><span>국어</span><span>{subjectStats.korean}</span></div>
-            <div style={styles.statsRow}><span>수학</span><span>{subjectStats.math}</span></div>
-            <div style={styles.statsRow}><span>영어</span><span>{subjectStats.english}</span></div>
-            <div style={styles.statsRow}><span>탐구1</span><span>{subjectStats.inquiry1}</span></div>
-            <div style={styles.statsRow}><span>탐구2</span><span>{subjectStats.inquiry2}</span></div>
-            <div style={styles.statsRow}><span>한국사</span><span>{subjectStats.history}</span></div>
-          </div>
-
-          <div style={styles.statsCard}>
-            <h3 style={styles.statsTitle}>상위 평균 학생 TOP 5</h3>
-            {topStudents.length === 0 ? (
-              <div style={styles.stateBox}>학생 데이터가 없습니다.</div>
-            ) : (
-              topStudents.map((st, idx) => (
-                <div key={s(st.student_id)} style={styles.statsRow}>
-                  <span>{idx + 1}. {s(st.name)}</span>
-                  <span>{getAverageNumber(st).toFixed(1)}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section style={styles.chartGrid}>
-          <div style={styles.chartPanel}>
-            <h3 style={styles.chartPanelTitle}>지점별 평균 차트</h3>
-            {branchStats.length === 0 ? (
-              <div style={styles.stateBox}>차트 데이터가 없습니다.</div>
-            ) : (
-              branchStats.map((item) => (
-                <div key={item.branch_id} style={styles.branchChartRow}>
-                  <div style={styles.branchChartLabel}>
-                    <span>{item.branch_name}</span>
-                    <span>{item.avg}</span>
-                  </div>
-                  <div style={styles.branchChartTrack}>
-                    <div
-                      style={{
-                        ...styles.branchChartBar,
-                        width: `${Math.max(0, Math.min(100, Number(item.avg)))}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section style={styles.filterBar}>
-          <input
-            type="text"
-            placeholder="이름 / 학교 / 학번 검색"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            style={styles.searchInput}
+        {isStudentRole ? (
+          <StudentDashboard
+            feedback={feedback}
+            loading={loading}
+            student={dashboardStudent}
+            mockChartData={selectedStudentMockChartData}
+            physicalChartData={selectedStudentPhysicalChartData}
+            getAverageNumber={getAverageNumber}
+            getGradeBadgeStyle={getGradeBadgeStyle}
+            getBranchLabel={getBranchLabel}
+            s={s}
           />
-
-          {isSuperAdmin ? (
-            <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} style={styles.select}>
-              {branchOptions.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch === "ALL" ? "전체 지점" : getBranchLabel(branch)}
-                </option>
-              ))}
-            </select>
-          ) : null}
-
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={styles.select}>
-            <option value="ALL">전체 상태</option>
-            <option value="active">active</option>
-            <option value="inactive">inactive</option>
-          </select>
-
-          <select value={sortType} onChange={(e) => setSortType(e.target.value as SortType)} style={styles.select}>
-            <option value="default">기본순</option>
-            <option value="name">이름순</option>
-            <option value="studentNo">학번순</option>
-            <option value="avgDesc">평균 높은순</option>
-            <option value="koreanDesc">국어 높은순</option>
-            <option value="mathDesc">수학 높은순</option>
-            <option value="englishDesc">영어 높은순</option>
-          </select>
-        </section>
-          </>
-        ) : null}
-
-        {!isStudentRole && selectedStudent ? (
-          <StudentChartSection
+        ) : (
+          <AdminDashboard
+            feedback={feedback}
+            loading={loading}
             selectedStudent={selectedStudent}
+            selectedStudentId={selectedStudentId}
+            selectedStudentMockChartData={selectedStudentMockChartData}
+            selectedStudentPhysicalChartData={selectedStudentPhysicalChartData}
+            filteredStudents={filteredStudents}
+            scopedBranches={scopedBranches}
+            scopedStudents={scopedStudents}
+            branchOptions={branchOptions}
+            branchFilter={branchFilter}
+            statusFilter={statusFilter}
+            sortType={sortType}
+            searchInput={searchInput}
+            summary={summary}
+            quickStats={quickStats}
+            topStudents={topStudents}
+            subjectStats={subjectStats}
+            selectedIndex={selectedIndex}
+            canManageStudents={canManageStudents}
+            isSuperAdmin={isSuperAdmin}
+            onSearchInputChange={setSearchInput}
+            onBranchFilterChange={setBranchFilter}
+            onStatusFilterChange={setStatusFilter}
+            onSortTypeChange={(value) => setSortType(value as SortType)}
+            onSelectStudent={handleSelectStudent}
+            onOpenDetail={handleOpenDetail}
+            onMoveSelection={moveSelection}
+            onExportAllCsv={handleExportAllCsv}
+            onExportBranchCsv={handleExportBranchCsv}
+            onPrint={handlePrint}
+            onPrintSelected={handlePrintSelected}
+            onEdit={openEditModal}
+            onDelete={handleDelete}
+            onAdd={openAddModal}
+            getAverageNumber={getAverageNumber}
+            getStatusStyle={getStatusStyle}
+            getGradeBadgeStyle={getGradeBadgeStyle}
+            getBranchLabel={getBranchLabel}
             getScoreNumber={getScoreNumber}
             getBarWidth={getBarWidth}
             s={s}
           />
-        ) : null}
-
-        {isStudentRole ? (
-          <section style={styles.studentViewWrap}>
-            {selectedStudent ? (
-              <StudentChartSection
-                selectedStudent={selectedStudent}
-                getScoreNumber={getScoreNumber}
-                getBarWidth={getBarWidth}
-                s={s}
-              />
-            ) : null}
-            <div style={styles.detailCardStatic}>
-              {selectedStudent ? (
-                <StudentDetailPanel
-                  student={selectedStudent}
-                  branches={scopedBranches}
-                  mockChartData={selectedStudentMockChartData}
-                  physicalChartData={selectedStudentPhysicalChartData}
-                  canManage={false}
-                  sticky={false}
-                  onEdit={openEditModal}
-                  onDelete={handleDelete}
-                  onShowDetail={() => setIsDetailPopupOpen(true)}
-                  getAverageNumber={getAverageNumber}
-                  getGradeBadgeStyle={getGradeBadgeStyle}
-                  getBranchLabel={getBranchLabel}
-                  s={s}
-                />
-              ) : (
-                <div style={styles.stateBox}>연결된 학생 정보를 찾을 수 없습니다.</div>
-              )}
-            </div>
-          </section>
-        ) : (
-        <section style={styles.contentGrid}>
-          <div style={styles.leftPanel}>
-            <div style={styles.stickyActionBar}>
-              <div style={styles.selectedStudentChip}>
-                <span style={styles.selectedStudentLabel}>선택학생</span>
-                <strong style={styles.selectedStudentText}>
-                  {selectedStudent ? s(selectedStudent.name) : "학생을 선택하세요"}
-                </strong>
-              </div>
-
-              <div style={styles.buttonGroup}>
-                <button style={styles.navButton} onClick={() => moveSelection("prev")} disabled={filteredStudents.length === 0 || selectedIndex <= 0}>
-                  이전
-                </button>
-                <button
-                  style={styles.navButton}
-                  onClick={() => moveSelection("next")}
-                  disabled={filteredStudents.length === 0 || selectedIndex === -1 || selectedIndex >= filteredStudents.length - 1}
-                >
-                  다음
-                </button>
-                <button style={styles.navButton} onClick={() => selectedStudent && setIsDetailPopupOpen(true)} disabled={!selectedStudent}>
-                  상세보기
-                </button>
-                <button style={styles.navButton} onClick={handleExportAllCsv}>
-                  CSV
-                </button>
-                <button style={styles.navButton} onClick={handleExportBranchCsv}>
-                  지점 CSV
-                </button>
-                <button style={styles.navButton} onClick={handlePrint}>
-                  목록 인쇄
-                </button>
-                <button style={styles.navButton} onClick={handlePrintSelected} disabled={!selectedStudent}>
-                  학생 인쇄
-                </button>
-                {canManageStudents ? <button style={styles.editButton} onClick={openEditModal}>수정</button> : null}
-                {canManageStudents ? <button style={styles.deleteButton} onClick={handleDelete}>삭제</button> : null}
-                {canManageStudents ? <button style={styles.addButton} onClick={openAddModal}>+ 학생 추가</button> : null}
-              </div>
-            </div>
-
-            <div style={styles.panelHeader}>
-              <div>
-                <h3 style={styles.panelTitle}>학생 목록</h3>
-                <p style={styles.panelDesc}>검색, 지점, 상태, 평균 정렬이 적용된 결과입니다.</p>
-              </div>
-            </div>
-
-            <div style={styles.tableWrap}>
-              {loading ? (
-                <div style={styles.stateBox}>데이터를 불러오는 중입니다...</div>
-              ) : filteredStudents.length === 0 ? (
-                <div style={styles.stateBox}>검색 결과가 없습니다.</div>
-              ) : (
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>이름</th>
-                      <th style={styles.th}>학번</th>
-                      <th style={styles.th}>지점</th>
-                      <th style={styles.th}>학교</th>
-                      <th style={styles.th}>학년</th>
-                      <th style={styles.th}>상태</th>
-                      <th style={styles.th}>평균</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredStudents.map((st) => {
-                      const isSelected = s(selectedStudentId) === s(st.student_id);
-
-                      return (
-                        <tr
-                          key={s(st.student_id)}
-                          onClick={() => setSelectedStudentId(s(st.student_id))}
-                          onDoubleClick={() => {
-                            setSelectedStudentId(s(st.student_id));
-                            setIsDetailPopupOpen(true);
-                          }}
-                          style={{ ...styles.row, ...(isSelected ? styles.selectedRow : {}) }}
-                        >
-                          <td style={styles.tdStrong}>{s(st.name)}</td>
-                          <td style={styles.td}>{s(st.student_no) || "-"}</td>
-                          <td style={styles.td}>{getBranchLabel(s(st.branch_id))}</td>
-                          <td style={styles.td}>{s(st.school_name)}</td>
-                          <td style={styles.td}>{s(st.grade)}</td>
-                          <td style={styles.td}>
-                            <span style={{ ...styles.gradeBadge, ...getStatusStyle(s(st.status)) }}>
-                              {s(st.status) || "-"}
-                            </span>
-                          </td>
-                          <td style={styles.td}>{getAverageNumber(st).toFixed(1)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-
-          <div style={styles.detailCard}>
-            {selectedStudent ? (
-              <StudentDetailPanel
-                student={selectedStudent}
-                branches={scopedBranches}
-                mockChartData={selectedStudentMockChartData}
-                physicalChartData={selectedStudentPhysicalChartData}
-                canManage={canManageStudents}
-                sticky={true}
-                onEdit={openEditModal}
-                onDelete={handleDelete}
-                onShowDetail={() => setIsDetailPopupOpen(true)}
-                getAverageNumber={getAverageNumber}
-                getGradeBadgeStyle={getGradeBadgeStyle}
-                getBranchLabel={getBranchLabel}
-                s={s}
-              />
-            ) : (
-              <div style={styles.stateBox}>학생을 선택하세요.</div>
-            )}
-          </div>
-        </section>
         )}
       </div>
 
@@ -1772,14 +2355,13 @@ export default function Home() {
             </div>
             <StudentDetailPanel
               student={selectedStudent}
-              branches={scopedBranches}
               mockChartData={selectedStudentMockChartData}
               physicalChartData={selectedStudentPhysicalChartData}
               canManage={canManageStudents}
               sticky={false}
               onEdit={() => {
                 setIsDetailPopupOpen(false);
-                openEditModal();
+                void openEditModal();
               }}
               onDelete={handleDelete}
               onShowDetail={() => {}} // Already in detail view
@@ -1823,7 +2405,7 @@ export default function Home() {
 const styles: { [key: string]: React.CSSProperties } = {
   page: {
     minHeight: "100vh",
-    background: "linear-gradient(180deg, #edf3f9 0%, #e8eff7 100%)",
+    background: portalTheme.gradients.page,
     padding: "32px 20px 40px",
     fontFamily: "Arial, sans-serif",
   },
@@ -1847,15 +2429,17 @@ const styles: { [key: string]: React.CSSProperties } = {
     justifyContent: "space-between",
     alignItems: "flex-start",
     gap: "20px",
+    padding: "24px 26px",
+    borderRadius: "24px",
+    background: portalTheme.gradients.header,
+    border: `1px solid ${portalTheme.colors.line}`,
+    boxShadow: portalTheme.shadows.card,
   },
   navLink: {
+    ...portalButtonStyles.primary,
     padding: "12px 16px",
-    background: "#0f766e",
-    color: "#ffffff",
     textDecoration: "none",
-    borderRadius: "12px",
     fontSize: "14px",
-    fontWeight: 700,
     whiteSpace: "nowrap",
   },
   headerActions: {
@@ -1872,22 +2456,22 @@ const styles: { [key: string]: React.CSSProperties } = {
   examLabel: {
     fontSize: "14px",
     fontWeight: 600,
-    color: "#374151",
+    color: portalTheme.colors.textPrimary,
   },
   examSelect: {
     padding: "8px 12px",
-    border: "1px solid #d1d5db",
+    border: `1px solid ${portalTheme.colors.lineStrong}`,
     borderRadius: "8px",
     fontSize: "14px",
-    background: "#ffffff",
+    background: portalTheme.colors.surfaceCard,
     minWidth: "200px",
   },
   badge: {
     display: "inline-block",
     padding: "7px 12px",
     borderRadius: "999px",
-    background: "#dbeafe",
-    color: "#1d4ed8",
+    background: portalTheme.colors.primarySoft,
+    color: portalTheme.colors.primary,
     fontSize: "12px",
     fontWeight: 700,
     marginBottom: "12px",
@@ -1896,12 +2480,12 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: "0 0 10px 0",
     fontSize: "42px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
     letterSpacing: "-0.5px",
   },
   subtitle: {
     margin: 0,
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
     fontSize: "15px",
     lineHeight: 1.6,
   },
@@ -1912,22 +2496,22 @@ const styles: { [key: string]: React.CSSProperties } = {
     marginBottom: "20px",
   },
   summaryCard: {
-    background: "#ffffff",
+    background: portalTheme.gradients.card,
     borderRadius: "18px",
     padding: "18px 20px",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-    border: "1px solid #eef2f7",
+    boxShadow: portalTheme.shadows.soft,
+    border: `1px solid ${portalTheme.colors.line}`,
   },
   summaryLabel: {
     display: "block",
     fontSize: "13px",
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
     marginBottom: "10px",
   },
   summaryValue: {
     fontSize: "30px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   quickStatsWrap: {
     display: "flex",
@@ -1936,10 +2520,10 @@ const styles: { [key: string]: React.CSSProperties } = {
     marginBottom: "20px",
   },
   quickChip: {
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
-    boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
-    color: "#0f172a",
+    background: portalTheme.colors.surfaceCard,
+    border: `1px solid ${portalTheme.colors.line}`,
+    boxShadow: portalTheme.shadows.soft,
+    color: portalTheme.colors.textStrong,
     borderRadius: "999px",
     padding: "10px 14px",
     fontSize: "13px",
@@ -1952,42 +2536,42 @@ const styles: { [key: string]: React.CSSProperties } = {
     marginBottom: "20px",
   },
   statsCard: {
-    background: "#ffffff",
+    background: portalTheme.gradients.card,
     borderRadius: "18px",
     padding: "18px 20px",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-    border: "1px solid #eef2f7",
+    boxShadow: portalTheme.shadows.soft,
+    border: `1px solid ${portalTheme.colors.line}`,
   },
   statsTitle: {
     margin: "0 0 14px 0",
     fontSize: "18px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   statsRow: {
     display: "flex",
     justifyContent: "space-between",
     gap: "12px",
     padding: "8px 0",
-    borderBottom: "1px solid #f1f5f9",
+    borderBottom: `1px solid ${portalTheme.colors.lineSoft}`,
     fontSize: "14px",
-    color: "#334155",
+    color: portalTheme.colors.textPrimary,
   },
   chartGrid: {
     marginBottom: "20px",
   },
   chartPanel: {
-    background: "#ffffff",
+    background: portalTheme.gradients.card,
     borderRadius: "18px",
     padding: "18px 20px",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-    border: "1px solid #eef2f7",
+    boxShadow: portalTheme.shadows.soft,
+    border: `1px solid ${portalTheme.colors.line}`,
   },
   chartPanelTitle: {
     margin: "0 0 14px 0",
     fontSize: "18px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   branchChartRow: {
     marginBottom: "12px",
@@ -1996,20 +2580,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: "flex",
     justifyContent: "space-between",
     fontSize: "14px",
-    color: "#334155",
+    color: portalTheme.colors.textPrimary,
     marginBottom: "6px",
   },
   branchChartTrack: {
     width: "100%",
     height: "14px",
     borderRadius: "999px",
-    background: "#e2e8f0",
+    background: portalTheme.colors.lineSoft,
     overflow: "hidden",
   },
   branchChartBar: {
     height: "100%",
     borderRadius: "999px",
-    background: "linear-gradient(90deg, #2563eb 0%, #60a5fa 100%)",
+    background: "linear-gradient(90deg, #1f6fe5 0%, #6ab7ff 100%)",
   },
   filterBar: {
     display: "flex",
@@ -2022,26 +2606,28 @@ const styles: { [key: string]: React.CSSProperties } = {
     maxWidth: "100%",
     padding: "12px 14px",
     borderRadius: "12px",
-    border: "1px solid #cbd5e1",
+    border: `1px solid ${portalTheme.colors.lineStrong}`,
     fontSize: "14px",
-    background: "#ffffff",
+    background: portalTheme.colors.surfaceCardAlt,
+    boxShadow: portalTheme.shadows.soft,
     outline: "none",
   },
   select: {
     minWidth: "170px",
     padding: "12px 14px",
     borderRadius: "12px",
-    border: "1px solid #cbd5e1",
+    border: `1px solid ${portalTheme.colors.lineStrong}`,
     fontSize: "14px",
-    background: "#ffffff",
+    background: portalTheme.colors.surfaceCard,
     outline: "none",
   },
   chartSection: {
-    background: "#ffffff",
+    background: portalTheme.gradients.card,
     borderRadius: "20px",
     padding: "20px",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+    boxShadow: portalTheme.shadows.soft,
     marginBottom: "20px",
+    border: `1px solid ${portalTheme.colors.line}`,
   },
   chartHeader: {
     marginBottom: "16px",
@@ -2050,11 +2636,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: "0 0 6px 0",
     fontSize: "20px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   chartDesc: {
     margin: 0,
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
     fontSize: "13px",
   },
   chartCard: {
@@ -2075,19 +2661,19 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: "center",
     fontSize: "14px",
     fontWeight: 700,
-    color: "#334155",
+    color: portalTheme.colors.textPrimary,
   },
   chartLabel: {
-    color: "#334155",
+    color: portalTheme.colors.textPrimary,
   },
   chartValue: {
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
     fontWeight: 800,
   },
   chartTrack: {
     flex: 1,
     height: "18px",
-    background: "#e2e8f0",
+    background: portalTheme.colors.lineSoft,
     borderRadius: "999px",
     overflow: "hidden",
   },
@@ -2096,13 +2682,13 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderRadius: "999px",
   },
   koreanBar: {
-    background: "linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%)",
+    background: "linear-gradient(90deg, #1f6fe5 0%, #6ab7ff 100%)",
   },
   mathBar: {
-    background: "linear-gradient(90deg, #22c55e 0%, #4ade80 100%)",
+    background: "linear-gradient(90deg, #149b85 0%, #34b87a 100%)",
   },
   englishBar: {
-    background: "linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%)",
+    background: "linear-gradient(90deg, #ff9b54 0%, #ffd089 100%)",
   },
   contentGrid: {
     display: "grid",
@@ -2111,10 +2697,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: "start",
   },
   leftPanel: {
-    background: "#ffffff",
+    background: portalTheme.gradients.card,
     borderRadius: "20px",
     padding: "20px",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+    boxShadow: portalTheme.shadows.soft,
+    border: `1px solid ${portalTheme.colors.line}`,
   },
   stickyActionBar: {
     position: "sticky",
@@ -2122,7 +2709,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     zIndex: 20,
     background: "rgba(255,255,255,0.96)",
     backdropFilter: "blur(6px)",
-    border: "1px solid #e2e8f0",
+    border: `1px solid ${portalTheme.colors.line}`,
     borderRadius: "16px",
     padding: "12px 14px",
     marginBottom: "16px",
@@ -2131,25 +2718,25 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: "center",
     gap: "12px",
     flexWrap: "wrap",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)",
+    boxShadow: portalTheme.shadows.soft,
   },
   selectedStudentChip: {
     display: "flex",
     alignItems: "center",
     gap: "10px",
-    background: "#f8fafc",
+    background: portalTheme.colors.surfacePanel,
     borderRadius: "999px",
     padding: "10px 14px",
   },
   selectedStudentLabel: {
     fontSize: "12px",
     fontWeight: 700,
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
   },
   selectedStudentText: {
     fontSize: "14px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   panelHeader: {
     display: "flex",
@@ -2163,11 +2750,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: "0 0 6px 0",
     fontSize: "20px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   panelDesc: {
     margin: 0,
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
     fontSize: "13px",
   },
   buttonGroup: {
@@ -2176,43 +2763,27 @@ const styles: { [key: string]: React.CSSProperties } = {
     flexWrap: "wrap",
   },
   addButton: {
-    border: "none",
-    background: "#2563eb",
-    color: "#ffffff",
+    ...portalButtonStyles.primary,
     padding: "12px 16px",
-    borderRadius: "12px",
     fontSize: "14px",
-    fontWeight: 700,
     cursor: "pointer",
   },
   editButton: {
-    border: "none",
-    background: "#0f766e",
-    color: "#ffffff",
+    ...portalButtonStyles.success,
     padding: "12px 16px",
-    borderRadius: "12px",
     fontSize: "14px",
-    fontWeight: 700,
     cursor: "pointer",
   },
   deleteButton: {
-    border: "none",
-    background: "#dc2626",
-    color: "#ffffff",
+    ...portalButtonStyles.warning,
     padding: "12px 16px",
-    borderRadius: "12px",
     fontSize: "14px",
-    fontWeight: 700,
     cursor: "pointer",
   },
   navButton: {
-    border: "1px solid #cbd5e1",
-    background: "#ffffff",
-    color: "#334155",
+    ...portalButtonStyles.secondary,
     padding: "12px 14px",
-    borderRadius: "12px",
     fontSize: "14px",
-    fontWeight: 700,
     cursor: "pointer",
   },
   tableWrap: {
@@ -2224,26 +2795,26 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   th: {
     padding: "14px 12px",
-    borderBottom: "2px solid #e2e8f0",
-    background: "#f8fafc",
+    borderBottom: `2px solid ${portalTheme.colors.lineStrong}`,
+    background: portalTheme.colors.surfacePanel,
     textAlign: "left",
     fontSize: "14px",
-    color: "#334155",
+    color: portalTheme.colors.textPrimary,
     whiteSpace: "nowrap",
   },
   td: {
     padding: "14px 12px",
-    borderBottom: "1px solid #edf2f7",
+    borderBottom: `1px solid ${portalTheme.colors.lineSoft}`,
     fontSize: "14px",
-    color: "#334155",
+    color: portalTheme.colors.textPrimary,
     whiteSpace: "nowrap",
   },
   tdStrong: {
     padding: "14px 12px",
-    borderBottom: "1px solid #edf2f7",
+    borderBottom: `1px solid ${portalTheme.colors.lineSoft}`,
     fontSize: "14px",
     fontWeight: 800,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
     whiteSpace: "nowrap",
   },
   row: {
@@ -2251,24 +2822,26 @@ const styles: { [key: string]: React.CSSProperties } = {
     transition: "background 0.15s ease",
   },
   selectedRow: {
-    background: "#eaf2ff",
-    boxShadow: "inset 4px 0 0 #2563eb",
+    background: portalTheme.colors.primarySoft,
+    boxShadow: `inset 4px 0 0 ${portalTheme.colors.primary}`,
   },
   detailCard: {
-    background: "#ffffff",
+    background: portalTheme.gradients.card,
     padding: "24px",
     borderRadius: "20px",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
+    boxShadow: portalTheme.shadows.soft,
+    border: `1px solid ${portalTheme.colors.line}`,
     position: "sticky",
     top: "20px",
   },
   detailPopupBox: {
     width: "100%",
     maxWidth: "860px",
-    background: "#ffffff",
+    background: portalTheme.gradients.card,
     borderRadius: "20px",
     padding: "24px",
-    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.25)",
+    boxShadow: portalTheme.shadows.modal,
+    border: `1px solid ${portalTheme.colors.line}`,
     maxHeight: "90vh",
     overflowY: "auto",
   },
@@ -2276,8 +2849,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: "inline-block",
     padding: "7px 12px",
     borderRadius: "999px",
-    background: "#dbeafe",
-    color: "#1d4ed8",
+    background: portalTheme.colors.primarySoft,
+    color: portalTheme.colors.primary,
     fontSize: "12px",
     fontWeight: 700,
     marginBottom: "14px",
@@ -2286,12 +2859,12 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: "0 0 8px 0",
     fontSize: "34px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
     letterSpacing: "-0.5px",
   },
   detailSub: {
     margin: "0 0 20px 0",
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
     fontSize: "14px",
   },
   scoreGrid: {
@@ -2301,24 +2874,25 @@ const styles: { [key: string]: React.CSSProperties } = {
     marginBottom: "20px",
   },
   scoreBox: {
-    background: "#f8fafc",
+    background: portalTheme.colors.surfacePanel,
     borderRadius: "16px",
     padding: "16px",
     minHeight: "98px",
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
+    border: `1px solid ${portalTheme.colors.line}`,
   },
   scoreLabel: {
     display: "block",
     fontSize: "12px",
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
     marginBottom: "8px",
   },
   scoreValue: {
     fontSize: "26px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   gradeBadge: {
     display: "inline-block",
@@ -2330,8 +2904,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     marginTop: "8px",
   },
   infoSection: {
-    borderTop: "1px solid #e2e8f0",
-    borderBottom: "1px solid #e2e8f0",
+    borderTop: `1px solid ${portalTheme.colors.line}`,
+    borderBottom: `1px solid ${portalTheme.colors.line}`,
     padding: "16px 0",
     marginBottom: "20px",
   },
@@ -2341,11 +2915,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "12px",
     fontSize: "14px",
     marginBottom: "10px",
-    color: "#334155",
+    color: portalTheme.colors.textPrimary,
   },
   infoTitle: {
     fontWeight: 700,
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
   },
   subjectPanel: {
     display: "flex",
@@ -2356,33 +2930,36 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: "0 0 4px 0",
     fontSize: "18px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   subjectBox: {
-    background: "#f8fafc",
+    background: portalTheme.colors.surfacePanel,
     borderRadius: "16px",
     padding: "16px",
+    border: `1px solid ${portalTheme.colors.line}`,
   },
   subjectRow: {
     display: "flex",
     justifyContent: "space-between",
     gap: "12px",
     fontSize: "14px",
-    color: "#334155",
+    color: portalTheme.colors.textPrimary,
     marginBottom: "8px",
   },
   stateBox: {
-    background: "#f8fafc",
-    borderRadius: "14px",
+    background: portalTheme.gradients.card,
+    borderRadius: "16px",
+    border: `1px solid ${portalTheme.colors.line}`,
+    boxShadow: portalTheme.shadows.card,
     padding: "24px",
     fontSize: "14px",
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
     textAlign: "center",
   },
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    background: "rgba(15, 23, 42, 0.45)",
+    background: "rgba(10, 30, 58, 0.48)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -2392,10 +2969,11 @@ const styles: { [key: string]: React.CSSProperties } = {
   modalBox: {
     width: "100%",
     maxWidth: "980px",
-    background: "#ffffff",
+    background: portalTheme.gradients.card,
     borderRadius: "20px",
     padding: "24px",
-    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.25)",
+    boxShadow: portalTheme.shadows.modal,
+    border: `1px solid ${portalTheme.colors.line}`,
     maxHeight: "90vh",
     overflowY: "auto",
   },
@@ -2409,17 +2987,18 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: 0,
     fontSize: "22px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   closeButton: {
     border: "none",
-    background: "#f1f5f9",
+    background: portalTheme.colors.surfacePanel,
     width: "36px",
     height: "36px",
     borderRadius: "10px",
     cursor: "pointer",
     fontSize: "16px",
     fontWeight: 700,
+    color: portalTheme.colors.textPrimary,
   },
   formGrid: {
     display: "grid",
@@ -2440,21 +3019,21 @@ const styles: { [key: string]: React.CSSProperties } = {
   formLabel: {
     fontSize: "13px",
     fontWeight: 700,
-    color: "#475569",
+    color: portalTheme.colors.textMuted,
   },
   formInput: {
     padding: "12px 14px",
     borderRadius: "12px",
-    border: "1px solid #cbd5e1",
+    border: `1px solid ${portalTheme.colors.lineStrong}`,
     fontSize: "14px",
     outline: "none",
-    background: "#fff",
+    background: portalTheme.colors.surfaceCard,
   },
   sectionToggle: {
     width: "100%",
-    border: "1px solid #cbd5e1",
-    background: "#f8fafc",
-    color: "#0f172a",
+    border: `1px solid ${portalTheme.colors.lineStrong}`,
+    background: portalTheme.colors.surfacePanel,
+    color: portalTheme.colors.textStrong,
     padding: "12px 14px",
     borderRadius: "12px",
     fontSize: "14px",
@@ -2470,23 +3049,15 @@ const styles: { [key: string]: React.CSSProperties } = {
     flexWrap: "wrap",
   },
   secondaryButton: {
-    border: "1px solid #cbd5e1",
-    background: "#ffffff",
-    color: "#334155",
+    ...portalButtonStyles.secondary,
     padding: "12px 16px",
-    borderRadius: "12px",
     fontSize: "14px",
-    fontWeight: 700,
     cursor: "pointer",
   },
   primaryButton: {
-    border: "none",
-    background: "#2563eb",
-    color: "#ffffff",
+    ...portalButtonStyles.primary,
     padding: "12px 16px",
-    borderRadius: "12px",
     fontSize: "14px",
-    fontWeight: 700,
     cursor: "pointer",
   },
 };

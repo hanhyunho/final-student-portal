@@ -1,0 +1,392 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
+import type {
+  Account,
+  Branch,
+  MockExam,
+  MockScore,
+  PhysicalRecord,
+  PhysicalTest,
+  Student,
+} from "@/lib/dataService";
+import { normalizeAccountRecord, normalizeStudentId } from "@/lib/dataService";
+
+export type PortalStudentDetails = {
+  mockExams: MockExam[];
+  mockScores: MockScore[];
+  physicalTests: PhysicalTest[];
+  physicalRecords: PhysicalRecord[];
+  loadedAt: number;
+};
+
+type PortalSharedState = {
+  branches: Branch[];
+  students: Student[];
+  accounts: Account[];
+  currentAccount: Account | null;
+  isLoaded: boolean;
+  isLoading: boolean;
+  detailsCache: Record<string, PortalStudentDetails>;
+  detailsLoading: Record<string, boolean>;
+  hydratedAt: number;
+};
+
+type PortalLightData = {
+  branches: Branch[];
+  students: Student[];
+  accounts?: Account[];
+};
+
+let portalSharedState: PortalSharedState = {
+  branches: [],
+  students: [],
+  accounts: [],
+  currentAccount: null,
+  isLoaded: false,
+  isLoading: false,
+  detailsCache: {},
+  detailsLoading: {},
+  hydratedAt: 0,
+};
+
+let portalLightDataPromise: Promise<PortalLightData> | null = null;
+const detailsPromises = new Map<string, Promise<PortalStudentDetails>>();
+
+const listeners = new Set<() => void>();
+
+function emitChange() {
+  listeners.forEach((listener) => listener());
+}
+
+function setPortalSharedState(nextState: Partial<PortalSharedState>, touchHydratedAt = true) {
+  portalSharedState = {
+    ...portalSharedState,
+    ...nextState,
+    hydratedAt: touchHydratedAt ? Date.now() : portalSharedState.hydratedAt,
+  };
+
+  emitChange();
+}
+
+export function subscribePortalSharedStore(listener: () => void) {
+  listeners.add(listener);
+
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function getPortalSharedSnapshot() {
+  return portalSharedState;
+}
+
+export function usePortalSharedStore() {
+  return useSyncExternalStore(subscribePortalSharedStore, getPortalSharedSnapshot, getPortalSharedSnapshot);
+}
+
+export function usePortalSharedBranches() {
+  return useSyncExternalStore(
+    subscribePortalSharedStore,
+    () => portalSharedState.branches,
+    () => portalSharedState.branches
+  );
+}
+
+export function usePortalSharedStudents() {
+  return useSyncExternalStore(
+    subscribePortalSharedStore,
+    () => portalSharedState.students,
+    () => portalSharedState.students
+  );
+}
+
+export function usePortalSharedLoadedState() {
+  return useSyncExternalStore(
+    subscribePortalSharedStore,
+    () => portalSharedState.isLoaded,
+    () => portalSharedState.isLoaded
+  );
+}
+
+export async function ensurePortalSharedLightData(loader: () => Promise<PortalLightData>) {
+  if (portalSharedState.isLoaded) {
+    return {
+      branches: portalSharedState.branches,
+      students: portalSharedState.students,
+      accounts: portalSharedState.accounts,
+    } satisfies PortalLightData;
+  }
+
+  if (portalLightDataPromise) {
+    return portalLightDataPromise;
+  }
+
+  setPortalSharedState({ isLoading: true }, false);
+
+  portalLightDataPromise = loader()
+    .then((result) => {
+      const nextPayload = {
+        branches: result.branches || [],
+        students: result.students || [],
+        accounts: result.accounts || portalSharedState.accounts,
+      } satisfies PortalLightData;
+
+      setPortalSharedState({
+        ...nextPayload,
+        isLoaded: true,
+        isLoading: false,
+      });
+
+      return nextPayload;
+    })
+    .catch((error) => {
+      setPortalSharedState({ isLoading: false }, false);
+      throw error;
+    })
+    .finally(() => {
+      portalLightDataPromise = null;
+    });
+
+  return portalLightDataPromise;
+}
+
+export function syncPortalSharedLightData(input: {
+  branches?: Branch[];
+  students?: Student[];
+  accounts?: Account[];
+}) {
+  setPortalSharedState({
+    branches: input.branches ?? portalSharedState.branches,
+    students: input.students ?? portalSharedState.students,
+    accounts: input.accounts ?? portalSharedState.accounts,
+    isLoaded: true,
+    isLoading: false,
+  });
+}
+
+export function syncPortalSharedCurrentAccount(currentAccount: Account | null) {
+  setPortalSharedState({ currentAccount: normalizeAccountRecord(currentAccount) });
+}
+
+export function getPortalSharedStudentDetails(studentId: string) {
+  let normalizedStudentId = "";
+
+  try {
+    normalizedStudentId = normalizeStudentId(studentId);
+  } catch {
+    return null;
+  }
+
+  return portalSharedState.detailsCache[normalizedStudentId] || null;
+}
+
+export function hasPortalSharedStudentDetails(studentId: string) {
+  return !!getPortalSharedStudentDetails(studentId);
+}
+
+export function isPortalSharedStudentDetailsLoading(studentId: string) {
+  let normalizedStudentId = "";
+
+  try {
+    normalizedStudentId = normalizeStudentId(studentId);
+  } catch {
+    return false;
+  }
+
+  return !!portalSharedState.detailsLoading[normalizedStudentId];
+}
+
+export function removePortalSharedStudentDetails(studentId: string) {
+  let normalizedStudentId = "";
+
+  try {
+    normalizedStudentId = normalizeStudentId(studentId);
+  } catch {
+    return;
+  }
+
+  if (!portalSharedState.detailsCache[normalizedStudentId]) {
+    return;
+  }
+
+  const nextDetailsCache = { ...portalSharedState.detailsCache };
+  delete nextDetailsCache[normalizedStudentId];
+
+  const nextDetailsLoading = { ...portalSharedState.detailsLoading };
+  delete nextDetailsLoading[normalizedStudentId];
+
+  detailsPromises.delete(normalizedStudentId);
+
+  setPortalSharedState({
+    detailsCache: nextDetailsCache,
+    detailsLoading: nextDetailsLoading,
+  });
+}
+
+export async function ensurePortalSharedStudentDetails(
+  studentId: string,
+  loader: () => Promise<Omit<PortalStudentDetails, "loadedAt">>
+) {
+  const normalizedStudentId = normalizeStudentId(studentId);
+
+  const cachedDetails = getPortalSharedStudentDetails(normalizedStudentId);
+
+  if (cachedDetails) {
+    return cachedDetails;
+  }
+
+  const inFlightDetailsPromise = detailsPromises.get(normalizedStudentId);
+
+  if (inFlightDetailsPromise) {
+    return inFlightDetailsPromise;
+  }
+
+  setPortalSharedState(
+    {
+      detailsLoading: {
+        ...portalSharedState.detailsLoading,
+        [normalizedStudentId]: true,
+      },
+    },
+    false
+  );
+
+  const nextPromise = loader()
+    .then((result) => {
+      const nextDetails: PortalStudentDetails = {
+        mockExams: result.mockExams || [],
+        mockScores: result.mockScores || [],
+        physicalTests: result.physicalTests || [],
+        physicalRecords: result.physicalRecords || [],
+        loadedAt: Date.now(),
+      };
+
+      const nextLoading = { ...portalSharedState.detailsLoading };
+      delete nextLoading[normalizedStudentId];
+
+      setPortalSharedState({
+        detailsCache: {
+          ...portalSharedState.detailsCache,
+          [normalizedStudentId]: nextDetails,
+        },
+        detailsLoading: nextLoading,
+      });
+
+      return nextDetails;
+    })
+    .catch((error) => {
+      const nextLoading = { ...portalSharedState.detailsLoading };
+      delete nextLoading[normalizedStudentId];
+      setPortalSharedState({ detailsLoading: nextLoading }, false);
+      throw error;
+    })
+    .finally(() => {
+      detailsPromises.delete(normalizedStudentId);
+    });
+
+  detailsPromises.set(normalizedStudentId, nextPromise);
+
+  return nextPromise;
+}
+
+export function upsertPortalSharedBranch(nextBranch: Branch) {
+  const nextBranchId = String(nextBranch.branch_id ?? "").trim();
+
+  if (!nextBranchId) {
+    return;
+  }
+
+  const existingIndex = portalSharedState.branches.findIndex(
+    (branch) => String(branch.branch_id ?? "").trim() === nextBranchId
+  );
+
+  const nextBranches =
+    existingIndex === -1
+      ? [nextBranch, ...portalSharedState.branches]
+      : portalSharedState.branches.map((branch, index) =>
+          index === existingIndex ? { ...branch, ...nextBranch } : branch
+        );
+
+  setPortalSharedState({ branches: nextBranches });
+}
+
+export function appendPortalSharedBranch(nextBranch: Branch) {
+  const nextBranchId = String(nextBranch.branch_id ?? "").trim();
+
+  if (!nextBranchId) {
+    return;
+  }
+
+  const hasExistingBranch = portalSharedState.branches.some(
+    (branch) => String(branch.branch_id ?? "").trim() === nextBranchId
+  );
+
+  if (hasExistingBranch) {
+    upsertPortalSharedBranch(nextBranch);
+    return;
+  }
+
+  setPortalSharedState({
+    branches: [...portalSharedState.branches, nextBranch],
+  });
+}
+
+export function removePortalSharedBranch(branchId: string) {
+  const normalizedBranchId = String(branchId ?? "").trim();
+
+  setPortalSharedState({
+    branches: portalSharedState.branches.filter(
+      (branch) => String(branch.branch_id ?? "").trim() !== normalizedBranchId
+    ),
+  });
+}
+
+export function upsertPortalSharedStudent(nextStudent: Student) {
+  const nextStudentId = String(nextStudent.student_id ?? "").trim();
+
+  if (!nextStudentId) {
+    return;
+  }
+
+  const existingIndex = portalSharedState.students.findIndex(
+    (student) => String(student.student_id ?? "").trim() === nextStudentId
+  );
+
+  const nextStudents =
+    existingIndex === -1
+      ? [nextStudent, ...portalSharedState.students]
+      : portalSharedState.students.map((student, index) =>
+          index === existingIndex ? { ...student, ...nextStudent } : student
+        );
+
+  setPortalSharedState({ students: nextStudents });
+}
+
+export function removePortalSharedStudent(studentId: string) {
+  const normalizedStudentId = String(studentId ?? "").trim();
+
+  setPortalSharedState({
+    students: portalSharedState.students.filter(
+      (student) => String(student.student_id ?? "").trim() !== normalizedStudentId
+    ),
+  });
+}
+
+export function resetPortalSharedStore() {
+  portalLightDataPromise = null;
+  detailsPromises.clear();
+  portalSharedState = {
+    branches: [],
+    students: [],
+    accounts: [],
+    currentAccount: null,
+    isLoaded: false,
+    isLoading: false,
+    detailsCache: {},
+    detailsLoading: {},
+    hydratedAt: 0,
+  };
+
+  emitChange();
+}

@@ -1,6 +1,5 @@
 type SavePortalRowParams = {
-  sheetName: string;
-  keyField: string;
+  action: "saveStudent" | "saveMockScore" | "savePhysicalRecord";
   row: Record<string, unknown>;
 };
 
@@ -27,8 +26,11 @@ async function parseResponse(response: Response) {
   }
 }
 
-export async function savePortalRow({ sheetName, keyField, row }: SavePortalRowParams) {
-  const appsScriptUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL;
+export async function savePortalRow({ action, row }: SavePortalRowParams) {
+  const appsScriptUrl =
+    process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
+    process.env.APPS_SCRIPT_URL ||
+    "https://script.google.com/macros/s/AKfycbzMiiF4k6E2VAbLxOHJ39lGrDOv9PP9YnHI7he_Y-xyFtS91E4xjkRZG1vj68BKuPnBBA/exec";
 
   if (!appsScriptUrl) {
     throw new Error("NEXT_PUBLIC_APPS_SCRIPT_URL is not configured.");
@@ -40,9 +42,7 @@ export async function savePortalRow({ sheetName, keyField, row }: SavePortalRowP
       "Content-Type": "text/plain;charset=utf-8",
     },
     body: JSON.stringify({
-      action: "upsert",
-      sheetName,
-      keyField,
+      action,
       row: normalizeRow(row),
     }),
     cache: "no-store",
@@ -50,8 +50,25 @@ export async function savePortalRow({ sheetName, keyField, row }: SavePortalRowP
 
   const result = await parseResponse(response);
 
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[savePortalRow] response", {
+      action,
+      targetUrl: appsScriptUrl,
+      success: result.success,
+      ok: result.ok,
+      error: result.error,
+    });
+  }
+
   if (!response.ok || (result.success === false && result.ok === false)) {
-    throw new Error(result.error || result.message || `${sheetName} save failed.`);
+    console.error("[savePortalRow] request failed", {
+      action,
+      targetUrl: appsScriptUrl,
+      success: result.success,
+      ok: result.ok,
+      error: result.error || result.message,
+    });
+    throw new Error(result.error || result.message || `${action} save failed. (targetUrl: ${appsScriptUrl})`);
   }
 
   return result;

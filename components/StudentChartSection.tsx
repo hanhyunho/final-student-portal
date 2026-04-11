@@ -1,5 +1,20 @@
+"use client";
+
 import React from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { Student } from "@/lib/dataService";
+import { EmptyState } from "@/components/EmptyState";
+import { portalTheme } from "@/lib/theme";
 
 interface StudentChartSectionProps {
   selectedStudent: Student | null;
@@ -8,99 +23,153 @@ interface StudentChartSectionProps {
   s: (value: unknown) => string;
 }
 
+type ChartDatum = {
+  label: string;
+  value: number;
+  displayValue: string;
+  fill: string;
+};
+
+function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload?: ChartDatum }> }) {
+  if (!active || !payload?.length || !payload[0]?.payload) {
+    return null;
+  }
+
+  const item = payload[0].payload;
+
+  return (
+    <div
+      style={{
+        background: "rgba(255,255,255,0.98)",
+        border: `1px solid ${portalTheme.colors.lineStrong}`,
+        borderRadius: "14px",
+        boxShadow: portalTheme.shadows.cardStrong,
+        padding: "12px 14px",
+      }}
+    >
+      <div style={{ fontSize: "13px", fontWeight: 800, color: portalTheme.colors.textStrong, marginBottom: "4px" }}>{item.label}</div>
+      <div style={{ fontSize: "13px", color: portalTheme.colors.textMuted }}>값 {item.displayValue}</div>
+    </div>
+  );
+}
+
+function HorizontalBarCard({
+  title,
+  description,
+  data,
+  emptyTitle,
+  emptyDescription,
+  maxDomain,
+}: {
+  title: string;
+  description: string;
+  data: ChartDatum[];
+  emptyTitle: string;
+  emptyDescription: string;
+  maxDomain?: number;
+}) {
+  const hasData = data.some((item) => item.value > 0);
+
+  return (
+    <div
+      style={{
+        background: portalTheme.gradients.card,
+        border: `1px solid ${portalTheme.colors.line}`,
+        borderLeft: `4px solid ${portalTheme.colors.primary}`,
+        borderRadius: portalTheme.radius.md,
+        padding: "18px",
+        boxShadow: portalTheme.shadows.card,
+      }}
+    >
+      <div style={{ marginBottom: "14px" }}>
+        <h4 style={{ margin: 0, fontSize: "18px", fontWeight: 900, color: portalTheme.colors.textStrong }}>{title}</h4>
+        <p style={{ margin: "6px 0 0 0", color: portalTheme.colors.textMuted, fontSize: "13px", lineHeight: 1.5 }}>{description}</p>
+      </div>
+
+      {hasData ? (
+        <div
+          style={{
+            width: "100%",
+            height: "280px",
+            borderRadius: portalTheme.radius.md,
+            border: `1px solid ${portalTheme.colors.line}`,
+            background: portalTheme.gradients.cardTint,
+            padding: "10px",
+          }}
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} layout="vertical" margin={{ top: 8, right: 24, left: 6, bottom: 8 }} barCategoryGap={16}>
+              <CartesianGrid stroke={portalTheme.colors.lineStrong} strokeDasharray="3 3" horizontal={false} />
+              <XAxis
+                type="number"
+                domain={[0, maxDomain || "dataMax + 10"]}
+                axisLine={{ stroke: portalTheme.colors.lineStrong }}
+                tickLine={false}
+                tick={{ fontSize: 12, fill: portalTheme.colors.textPrimary }}
+              />
+              <YAxis
+                type="category"
+                dataKey="label"
+                width={72}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 13, fill: portalTheme.colors.textPrimary, fontWeight: 700 }}
+              />
+              <Tooltip cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} content={<ChartTooltip />} />
+              <Bar dataKey="value" radius={[0, 10, 10, 0]} maxBarSize={22}>
+                {data.map((item) => (
+                  <Cell key={item.label} fill={item.fill} />
+                ))}
+                <LabelList dataKey="displayValue" position="right" style={{ fill: portalTheme.colors.textStrong, fontSize: 12, fontWeight: 800 }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <EmptyState title={emptyTitle} description={emptyDescription} />
+      )}
+    </div>
+  );
+}
+
 export function StudentChartSection({
   selectedStudent,
   getScoreNumber,
   getBarWidth,
   s,
 }: StudentChartSectionProps) {
-  const hasScoreData = selectedStudent
-    ? [
-        selectedStudent.korean_raw,
-        selectedStudent.math_raw,
-        selectedStudent.english_raw,
-        selectedStudent.inquiry1_raw,
-        selectedStudent.inquiry2_raw,
-      ].some((value) => getScoreNumber(value) > 0)
-    : false;
+  void getBarWidth;
 
-  const styles: { [key: string]: React.CSSProperties } = {
+  const styles: Record<string, React.CSSProperties> = {
     chartSection: {
-      background: "#ffffff",
-      borderRadius: "20px",
-      padding: "20px",
-      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+      background: portalTheme.gradients.card,
+      borderRadius: portalTheme.radius.md,
+      padding: "22px",
+      boxShadow: portalTheme.shadows.card,
       marginBottom: "20px",
+      border: `1px solid ${portalTheme.colors.line}`,
+      borderLeft: `4px solid ${portalTheme.colors.primary}`,
     },
     chartHeader: {
-      marginBottom: "16px",
+      marginBottom: "18px",
     },
     chartTitle: {
       margin: "0 0 6px 0",
-      fontSize: "20px",
+      fontSize: "22px",
       fontWeight: 900,
-      color: "#0f172a",
+      color: portalTheme.colors.textStrong,
+      letterSpacing: "-0.02em",
     },
     chartDesc: {
       margin: 0,
-      color: "#64748b",
-      fontSize: "13px",
-    },
-    chartCard: {
-      display: "flex",
-      flexDirection: "column",
-      gap: "18px",
-    },
-    stateBox: {
-      background: "#f8fafc",
-      borderRadius: "14px",
-      padding: "28px 24px",
+      color: portalTheme.colors.textMuted,
       fontSize: "14px",
-      color: "#64748b",
-      textAlign: "center",
-      border: "1px dashed #cbd5e1",
+      lineHeight: 1.5,
     },
-    chartRow: {
-      display: "flex",
-      alignItems: "center",
+    grid: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
       gap: "16px",
-    },
-    chartLabelWrap: {
-      width: "90px",
-      flexShrink: 0,
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      fontSize: "14px",
-      fontWeight: 700,
-      color: "#334155",
-    },
-    chartLabel: {
-      color: "#334155",
-    },
-    chartValue: {
-      color: "#0f172a",
-      fontWeight: 800,
-    },
-    chartTrack: {
-      flex: 1,
-      height: "18px",
-      background: "#e2e8f0",
-      borderRadius: "999px",
-      overflow: "hidden",
-    },
-    chartBar: {
-      height: "100%",
-      borderRadius: "999px",
-    },
-    koreanBar: {
-      background: "linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%)",
-    },
-    mathBar: {
-      background: "linear-gradient(90deg, #22c55e 0%, #4ade80 100%)",
-    },
-    englishBar: {
-      background: "linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%)",
     },
   };
 
@@ -108,42 +177,62 @@ export function StudentChartSection({
     return null;
   }
 
+  const rawData: ChartDatum[] = [
+    { label: "국어", value: getScoreNumber(selectedStudent.korean_raw), displayValue: s(selectedStudent.korean_raw) || "-", fill: portalTheme.chart[0] },
+    { label: "수학", value: getScoreNumber(selectedStudent.math_raw), displayValue: s(selectedStudent.math_raw) || "-", fill: portalTheme.chart[1] },
+    { label: "영어", value: getScoreNumber(selectedStudent.english_raw), displayValue: s(selectedStudent.english_raw) || "-", fill: portalTheme.chart[3] },
+    { label: "탐구1", value: getScoreNumber(selectedStudent.inquiry1_raw), displayValue: s(selectedStudent.inquiry1_raw) || "-", fill: portalTheme.chart[2] },
+    { label: "탐구2", value: getScoreNumber(selectedStudent.inquiry2_raw), displayValue: s(selectedStudent.inquiry2_raw) || "-", fill: portalTheme.chart[4] },
+  ];
+
+  const stdData: ChartDatum[] = [
+    { label: "국어", value: getScoreNumber(selectedStudent.korean_std), displayValue: s(selectedStudent.korean_std) || "-", fill: portalTheme.chart[0] },
+    { label: "수학", value: getScoreNumber(selectedStudent.math_std), displayValue: s(selectedStudent.math_std) || "-", fill: portalTheme.chart[1] },
+    { label: "탐구1", value: getScoreNumber(selectedStudent.inquiry1_std), displayValue: s(selectedStudent.inquiry1_std) || "-", fill: portalTheme.chart[2] },
+    { label: "탐구2", value: getScoreNumber(selectedStudent.inquiry2_std), displayValue: s(selectedStudent.inquiry2_std) || "-", fill: portalTheme.chart[3] },
+  ];
+
+  const pctData: ChartDatum[] = [
+    { label: "국어", value: getScoreNumber(selectedStudent.korean_pct), displayValue: s(selectedStudent.korean_pct) || "-", fill: portalTheme.chart[0] },
+    { label: "수학", value: getScoreNumber(selectedStudent.math_pct), displayValue: s(selectedStudent.math_pct) || "-", fill: portalTheme.chart[1] },
+    { label: "탐구1", value: getScoreNumber(selectedStudent.inquiry1_pct), displayValue: s(selectedStudent.inquiry1_pct) || "-", fill: portalTheme.chart[2] },
+    { label: "탐구2", value: getScoreNumber(selectedStudent.inquiry2_pct), displayValue: s(selectedStudent.inquiry2_pct) || "-", fill: portalTheme.chart[3] },
+  ];
+
   return (
     <section style={styles.chartSection}>
       <div style={styles.chartHeader}>
-        <h3 style={styles.chartTitle}>선택 학생 성적 그래프</h3>
-        <p style={styles.chartDesc}>{s(selectedStudent.name)} 학생의 주요 과목 점수</p>
+        <div>
+          <h3 style={styles.chartTitle}>모의고사 요약</h3>
+          <p style={styles.chartDesc}>{s(selectedStudent.name)} 학생의 과목별 성적만 남겨 간결하게 정리했습니다.</p>
+        </div>
       </div>
 
-      {hasScoreData ? (
-        <div style={styles.chartCard}>
-          {[
-            ["국어", selectedStudent.korean_raw, styles.koreanBar],
-            ["수학", selectedStudent.math_raw, styles.mathBar],
-            ["영어", selectedStudent.english_raw, styles.englishBar],
-            ["탐구1", selectedStudent.inquiry1_raw, styles.koreanBar],
-            ["탐구2", selectedStudent.inquiry2_raw, styles.mathBar],
-          ].map(([label, value, barStyle]) => (
-            <div key={String(label)} style={styles.chartRow}>
-              <div style={styles.chartLabelWrap}>
-                <span style={styles.chartLabel}>{String(label)}</span>
-                <span style={styles.chartValue}>{s(value) || "-"}</span>
-              </div>
-              <div style={styles.chartTrack}>
-                <div
-                  style={{
-                    ...styles.chartBar,
-                    ...(barStyle as React.CSSProperties),
-                    width: getBarWidth(value as string | number | undefined),
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div style={styles.stateBox}>표시할 데이터가 없습니다.</div>
-      )}
+      <div style={styles.grid}>
+        <HorizontalBarCard
+          title="원점수"
+          description="과목별 현재 원점수를 같은 축에서 비교합니다."
+          data={rawData}
+          emptyTitle="원점수 데이터가 없습니다"
+          emptyDescription="표시할 원점수 데이터가 없습니다."
+          maxDomain={100}
+        />
+        <HorizontalBarCard
+          title="표준점수"
+          description="표준점수 입력이 있는 과목만 깔끔한 막대형으로 표시합니다."
+          data={stdData}
+          emptyTitle="표준점수 데이터가 없습니다"
+          emptyDescription="표시할 표준점수 데이터가 없습니다."
+        />
+        <HorizontalBarCard
+          title="백분위"
+          description="과목별 백분위를 0~100 범위에서 빠르게 비교할 수 있습니다."
+          data={pctData}
+          emptyTitle="백분위 데이터가 없습니다"
+          emptyDescription="표시할 백분위 데이터가 없습니다."
+          maxDomain={100}
+        />
+      </div>
     </section>
   );
 }

@@ -1,264 +1,450 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { BranchesTable } from "@/components/BranchesTable";
 import {
-  getBranches,
-  getStudents,
   createBranch,
-  updateBranch,
   deleteBranch,
+  getBranches,
+  updateBranch,
   type Branch,
   type Student,
 } from "@/lib/dataService";
+import {
+  usePortalSharedBranches,
+  usePortalSharedStudents,
+} from "@/lib/portalStore";
+import { portalButtonStyles, portalTheme } from "@/lib/theme";
+
+function stringValue(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function normalizeBranch(branch: Branch): Branch {
+  return {
+    ...branch,
+    branch_id: stringValue(branch.branch_id),
+    branch_code: stringValue(branch.branch_code),
+    branch_name: stringValue(branch.branch_name),
+    status: stringValue(branch.status) || "active",
+    created_at: stringValue(branch.created_at),
+    updated_at: stringValue(branch.updated_at),
+  };
+}
+
+function parseBranchSequence(branchId: string) {
+  const match = branchId.match(/^BR(\d+)$/i);
+
+  if (!match) {
+    return 0;
+  }
+
+  return Number(match[1] || 0);
+}
+
+function buildNextBranchId(branches: Branch[]) {
+  const maxSequence = branches.reduce((currentMax, branch) => {
+    return Math.max(currentMax, parseBranchSequence(stringValue(branch.branch_id)));
+  }, 0);
+
+  return `BR${String(maxSequence + 1).padStart(3, "0")}`;
+}
+
+const HANGUL_BASE = 0xac00;
+const HANGUL_LAST = 0xd7a3;
+const HANGUL_INITIALS = ["g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h"];
+const HANGUL_VOWELS = ["a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae", "oe", "yo", "u", "wo", "we", "wi", "yu", "eu", "ui", "i"];
+const HANGUL_FINALS = ["", "k", "k", "ks", "n", "nj", "nh", "t", "l", "lk", "lm", "lb", "ls", "lt", "lp", "lh", "m", "p", "ps", "t", "t", "ng", "t", "t", "k", "t", "p", "h"];
+
+function romanizeHangulCharacter(character: string) {
+  const codePoint = character.charCodeAt(0);
+
+  if (codePoint < HANGUL_BASE || codePoint > HANGUL_LAST) {
+    return character;
+  }
+
+  const syllableIndex = codePoint - HANGUL_BASE;
+  const initialIndex = Math.floor(syllableIndex / (21 * 28));
+  const vowelIndex = Math.floor((syllableIndex % (21 * 28)) / 28);
+  const finalIndex = syllableIndex % 28;
+
+  return `${HANGUL_INITIALS[initialIndex]}${HANGUL_VOWELS[vowelIndex]}${HANGUL_FINALS[finalIndex]}`;
+}
+
+function romanizeBranchName(branchName: string) {
+  return Array.from(branchName)
+    .map((character) => romanizeHangulCharacter(character))
+    .join("")
+    .replace(/[^a-zA-Z0-9]+/g, "")
+    .toUpperCase();
+}
+
+function buildBaseBranchCode(branchName: string) {
+  const romanizedBranchName = romanizeBranchName(branchName);
+
+  if (romanizedBranchName) {
+    return romanizedBranchName.slice(0, 3);
+  }
+
+  return "BRN";
+}
+
+function buildUniqueBranchCode(branchName: string, branches: Branch[], branchId: string) {
+  const baseCode = buildBaseBranchCode(branchName);
+  const usedCodes = new Set(
+    branches
+      .filter((branch) => stringValue(branch.branch_id) !== branchId)
+      .map((branch) => stringValue(branch.branch_code).toUpperCase())
+      .filter(Boolean)
+  );
+
+  if (!usedCodes.has(baseCode)) {
+    return baseCode;
+  }
+
+  let suffix = 2;
+  let candidateCode = `${baseCode}${suffix}`;
+
+  while (usedCodes.has(candidateCode)) {
+    suffix += 1;
+    candidateCode = `${baseCode}${suffix}`;
+  }
+
+  return candidateCode;
+}
+
+function buildCreateBranchPayload(branches: Branch[], branchName: string): Branch {
+  const now = new Date().toISOString();
+  const branchId = buildNextBranchId(branches);
+
+  return {
+    branch_id: branchId,
+    branch_name: branchName,
+    branch_code: buildUniqueBranchCode(branchName, branches, branchId),
+    status: "active",
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function buildUpdateBranchPayload(existingBranch: Branch, branchName: string, branches: Branch[]): Branch {
+  return {
+    ...existingBranch,
+    branch_id: stringValue(existingBranch.branch_id),
+    branch_name: branchName,
+    branch_code:
+      stringValue(existingBranch.branch_code) ||
+      buildUniqueBranchCode(branchName, branches, stringValue(existingBranch.branch_id)),
+    status: stringValue(existingBranch.status) || "active",
+    created_at: stringValue(existingBranch.created_at),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function countStudentsByBranch(students: Student[]) {
+  return students.reduce<Record<string, number>>((accumulator, student) => {
+    const branchId = stringValue(student.branch_id);
+
+    if (!branchId) {
+      return accumulator;
+    }
+
+    accumulator[branchId] = (accumulator[branchId] || 0) + 1;
+    return accumulator;
+  }, {});
+}
+
+async function safeJson(response: Response) {
+  const text = await response.text();
+
+  if (!text || !text.trim()) {
+    return { ok: false, success: false, error: "서버 응답이 비어 있습니다." };
+  }
+
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return { ok: false, success: false, error: `JSON이 아닌 응답입니다: ${text}` };
+  }
+}
+
+function upsertBranchInList(branches: Branch[], nextBranch: Branch) {
+  const nextBranchId = stringValue(nextBranch.branch_id);
+
+  if (!nextBranchId) {
+    return branches;
+  }
+
+  const existingIndex = branches.findIndex((branch) => stringValue(branch.branch_id) === nextBranchId);
+
+  if (existingIndex === -1) {
+    return [...branches, nextBranch];
+  }
+
+  return branches.map((branch, index) => (index === existingIndex ? normalizeBranch(nextBranch) : branch));
+}
+
+function removeBranchFromList(branches: Branch[], branchId: string) {
+  const normalizedBranchId = stringValue(branchId);
+  return branches.filter((branch) => stringValue(branch.branch_id) !== normalizedBranchId);
+}
 
 export default function BranchesPage() {
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(true);
+  const branchesSnapshot = usePortalSharedBranches();
+  const studentsSnapshot = usePortalSharedStudents();
+  const timerRef = useRef<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [form, setForm] = useState({ branch_id: "", branch_name: "" });
   const [saving, setSaving] = useState(false);
+  const [isFetchingBranches, setIsFetchingBranches] = useState(false);
+  const [hasFetchedBranches, setHasFetchedBranches] = useState(false);
+  const [fallbackBranches, setFallbackBranches] = useState<Branch[]>([]);
+  const [branchSource, setBranchSource] = useState<"store" | "fallback">("store");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  useEffect(() => {
-    loadData();
+  const showMessage = useCallback((type: "success" | "error", text: string) => {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+    }
+
+    setMessage({ type, text });
+    timerRef.current = window.setTimeout(() => setMessage(null), 3000);
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [branchesRes, studentsRes] = await Promise.all([
-        getBranches(),
-        getStudents(),
-      ]);
-      
-      if (branchesRes.ok && branchesRes.data) {
-        setBranches(branchesRes.data);
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
       }
-      if (studentsRes.ok && studentsRes.data) {
-        setStudents(studentsRes.data);
+    };
+  }, []);
+
+  const branches = useMemo(
+    () => {
+      const normalizedStoreBranches = branchesSnapshot.map(normalizeBranch);
+
+      if (branchSource === "store" && normalizedStoreBranches.length > 0) {
+        return normalizedStoreBranches;
       }
-    } catch (error) {
-      showMessage("error", "Failed to load data");
-    } finally {
-      setLoading(false);
+
+      if (branchSource === "store" && !hasFetchedBranches) {
+        return normalizedStoreBranches;
+      }
+
+      return fallbackBranches.map(normalizeBranch);
+    },
+    [branchSource, branchesSnapshot, fallbackBranches, hasFetchedBranches]
+  );
+
+  const studentCounts = useMemo(
+    () => countStudentsByBranch(studentsSnapshot),
+    [studentsSnapshot]
+  );
+
+  useEffect(() => {
+    if (branchesSnapshot.length > 0 && branchSource === "store") {
+      return;
     }
-  };
 
-  const showMessage = (type: "success" | "error", text: string) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 3000);
-  };
+    if (hasFetchedBranches) {
+      return;
+    }
 
-  const openAddModal = () => {
+    let cancelled = false;
+
+    async function loadBranches() {
+      try {
+        setIsFetchingBranches(true);
+        const result = await getBranches();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (result.ok) {
+          setFallbackBranches(Array.isArray(result.data) ? result.data.map(normalizeBranch) : []);
+          setBranchSource("fallback");
+        } else {
+          setFallbackBranches([]);
+          setBranchSource("fallback");
+          showMessage("error", result.error || "지점 목록을 불러오지 못했습니다.");
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setFallbackBranches([]);
+        setBranchSource("fallback");
+        showMessage("error", error instanceof Error ? error.message : "지점 목록을 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) {
+          setHasFetchedBranches(true);
+          setIsFetchingBranches(false);
+        }
+      }
+    }
+
+    loadBranches();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [branchSource, branchesSnapshot.length, hasFetchedBranches, showMessage]);
+
+  const openAddModal = useCallback(() => {
     setEditingBranch(null);
     setForm({ branch_id: "", branch_name: "" });
     setIsModalOpen(true);
-  };
+  }, []);
 
-  const openEditModal = (branch: Branch) => {
+  const openEditModal = useCallback((branch: Branch) => {
     setEditingBranch(branch);
     setForm({
-      branch_id: String(branch.branch_id),
-      branch_name: String(branch.branch_name),
+      branch_id: stringValue(branch.branch_id),
+      branch_name: stringValue(branch.branch_name),
     });
     setIsModalOpen(true);
-  };
+  }, []);
 
-  const handleSave = async () => {
-    if (!form.branch_name.trim()) {
-      showMessage("error", "Branch name is required");
+  const handleSave = useCallback(async () => {
+    const normalizedBranchName = form.branch_name.trim();
+
+    if (!normalizedBranchName) {
+      showMessage("error", "지점명은 필수입니다.");
       return;
     }
 
     try {
       setSaving(true);
-      const result = editingBranch
-        ? await updateBranch(form as Branch)
-        : await createBranch(form as Branch);
+
+      const payload = editingBranch
+        ? buildUpdateBranchPayload(editingBranch, normalizedBranchName, branches)
+        : buildCreateBranchPayload(branches, normalizedBranchName);
+      const result = editingBranch ? await updateBranch(payload) : await createBranch(payload);
 
       if (!result.ok) {
-        showMessage("error", result.error || "Operation failed");
+        showMessage("error", result.error || "지점 저장에 실패했습니다.");
         return;
       }
+
+      const savedBranch = normalizeBranch((result.data as Branch | undefined) || payload);
+      setFallbackBranches((prev) => upsertBranchInList(prev, savedBranch));
 
       setIsModalOpen(false);
       setForm({ branch_id: "", branch_name: "" });
-      showMessage("success", editingBranch ? "Branch updated" : "Branch created");
-      await loadData();
+      showMessage("success", editingBranch ? "지점을 수정했습니다." : "지점을 추가했습니다.");
     } catch (error) {
-      showMessage("error", "An error occurred");
+      showMessage("error", error instanceof Error ? error.message : "지점 저장 중 오류가 발생했습니다.");
     } finally {
       setSaving(false);
     }
-  };
+  }, [branches, editingBranch, form.branch_name, showMessage]);
 
-  const handleDelete = async (branch: Branch) => {
-    const branchName = String(branch.branch_name);
-    if (!confirm(`Delete "${branchName}"? This action cannot be undone.`)) {
+  const handleDelete = useCallback(async (branch: Branch) => {
+    const branchName = stringValue(branch.branch_name);
+
+    if (!window.confirm(`Delete "${branchName}"? This action cannot be undone.`)) {
       return;
     }
 
     try {
       setSaving(true);
-      const result = await deleteBranch(String(branch.branch_id));
+      const branchId = stringValue(branch.branch_id);
+      const result = await deleteBranch(branchId);
 
       if (!result.ok) {
-        showMessage("error", result.error || "Failed to delete branch");
+        showMessage("error", result.error || "지점 삭제에 실패했습니다.");
         return;
       }
 
-      showMessage("success", "Branch deleted");
-      await loadData();
+      setFallbackBranches((prev) => removeBranchFromList(prev, branchId));
+      showMessage("success", "지점을 삭제했습니다.");
     } catch (error) {
-      showMessage("error", "An error occurred");
+      showMessage("error", error instanceof Error ? error.message : "지점 삭제 중 오류가 발생했습니다.");
     } finally {
       setSaving(false);
     }
-  };
-
-  const getStudentCount = (branchId: string) => {
-    return students.filter((st) => String(st.branch_id) === String(branchId)).length;
-  };
+  }, [showMessage]);
 
   return (
     <main style={styles.page}>
       <div style={styles.container}>
-        {/* Header */}
         <header style={styles.header}>
           <div>
             <p style={styles.badge}>FINAL 관리자 시스템</p>
             <h1 style={styles.title}>지점 관리</h1>
-            <p style={styles.subtitle}>학원 지점을 관리하고 조회합니다.</p>
+            <p style={styles.subtitle}>지점을 추가, 수정, 삭제하고 학생 수를 빠르게 확인합니다.</p>
           </div>
-          <Link href="/" style={styles.backLink}>
-            ← 대시보드로 돌아가기
-          </Link>
+          <div style={styles.headerActions}>
+            <Link href="/" style={styles.secondaryLink}>
+              ← 대시보드로 돌아가기
+            </Link>
+            <button style={styles.addButton} onClick={openAddModal}>
+              + 새 지점 추가
+            </button>
+          </div>
         </header>
 
-        {/* Message */}
-        {message && (
-          <div
-            style={{
-              ...styles.messageBox,
-              background: message.type === "success" ? "#dcfce7" : "#fee2e2",
-              color: message.type === "success" ? "#166534" : "#b91c1c",
-            }}
-          >
+        {message ? (
+          <div style={{ ...styles.messageBox, ...(message.type === "success" ? styles.successBox : styles.errorBox) }}>
             {message.text}
           </div>
-        )}
+        ) : null}
 
-        {/* Add Button */}
-        <button style={styles.addButton} onClick={openAddModal} disabled={loading}>
-          + 새 지점 추가
-        </button>
-
-        {/* Branches Table */}
         <div style={styles.tableWrap}>
-          {loading ? (
-            <div style={styles.stateBox}>데이터를 불러오는 중입니다...</div>
+          {isFetchingBranches && branches.length === 0 ? (
+            <div style={styles.stateBox}>지점 목록을 불러오는 중입니다.</div>
           ) : branches.length === 0 ? (
             <div style={styles.stateBox}>지점이 없습니다. 새 지점을 추가하세요.</div>
           ) : (
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>지점명</th>
-                  <th style={styles.th}>학생 수</th>
-                  <th style={styles.th}>작업</th>
-                </tr>
-              </thead>
-              <tbody>
-                {branches.map((branch) => (
-                  <tr key={String(branch.branch_id)} style={styles.row}>
-                    <td style={styles.tdStrong}>{String(branch.branch_name)}</td>
-                    <td style={styles.td}>{getStudentCount(String(branch.branch_id))}</td>
-                    <td style={styles.td}>
-                      <button
-                        style={styles.editButton}
-                        onClick={() => openEditModal(branch)}
-                        disabled={saving}
-                      >
-                        수정
-                      </button>
-                      <button
-                        style={styles.deleteButton}
-                        onClick={() => handleDelete(branch)}
-                        disabled={saving}
-                      >
-                        삭제
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <BranchesTable
+              branches={branches}
+              countsLoading={false}
+              studentCounts={studentCounts}
+              saving={saving}
+              onEdit={openEditModal}
+              onDelete={handleDelete}
+            />
           )}
         </div>
       </div>
 
-      {/* Modal */}
-      {isModalOpen && (
+      {isModalOpen ? (
         <div style={styles.modalOverlay}>
-          <div style={styles.modalBox}>
+          <div style={styles.modalCard}>
             <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>
-                {editingBranch ? "지점 수정" : "지점 추가"}
-              </h3>
-              <button
-                style={styles.closeButton}
-                onClick={() => setIsModalOpen(false)}
-                disabled={saving}
-              >
+              <h2 style={styles.modalTitle}>{editingBranch ? "지점 수정" : "지점 추가"}</h2>
+              <button style={styles.closeButton} onClick={() => setIsModalOpen(false)}>
                 ✕
               </button>
             </div>
 
             <div style={styles.formGrid}>
-              <div style={styles.formField}>
-                <label style={styles.formLabel}>지점 ID</label>
+              <label style={styles.label}>
+                지점명
                 <input
-                  style={{ ...styles.formInput, opacity: editingBranch ? 0.6 : 1 }}
-                  value={form.branch_id}
-                  onChange={(e) => setForm({ ...form, branch_id: e.target.value })}
-                  placeholder="자동생성됨"
-                  disabled={!!editingBranch}
-                />
-              </div>
-              <div style={styles.formField}>
-                <label style={styles.formLabel}>지점명 *</label>
-                <input
-                  style={styles.formInput}
+                  style={styles.input}
                   value={form.branch_name}
-                  onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
-                  placeholder="지점 이름"
-                  autoFocus
+                  onChange={(event) => setForm((prev) => ({ ...prev, branch_name: event.target.value }))}
+                  placeholder="예: 강남 본원"
                 />
-              </div>
+              </label>
             </div>
 
             <div style={styles.modalFooter}>
-              <button
-                style={styles.secondaryButton}
-                onClick={() => setIsModalOpen(false)}
-                disabled={saving}
-              >
+              <button style={styles.secondaryButton} onClick={() => setIsModalOpen(false)} disabled={saving}>
                 취소
               </button>
-              <button
-                style={styles.primaryButton}
-                onClick={handleSave}
-                disabled={saving}
-              >
+              <button style={styles.addButton} onClick={handleSave} disabled={saving}>
                 {saving ? "저장 중..." : editingBranch ? "수정" : "추가"}
               </button>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </main>
   );
 }
@@ -266,7 +452,7 @@ export default function BranchesPage() {
 const styles: { [key: string]: React.CSSProperties } = {
   page: {
     minHeight: "100vh",
-    background: "linear-gradient(180deg, #edf3f9 0%, #e8eff7 100%)",
+    background: portalTheme.gradients.page,
     padding: "32px 20px 40px",
     fontFamily: "Arial, sans-serif",
   },
@@ -275,211 +461,157 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: "0 auto",
   },
   header: {
-    marginBottom: "24px",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    gap: "20px",
+    marginBottom: "20px",
+    padding: "24px 26px",
+    borderRadius: "24px",
+    background: portalTheme.gradients.header,
+    border: `1px solid ${portalTheme.colors.line}`,
+    boxShadow: portalTheme.shadows.card,
+  },
+  headerActions: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    alignItems: "flex-end",
   },
   badge: {
     display: "inline-block",
     padding: "7px 12px",
     borderRadius: "999px",
-    background: "#dbeafe",
-    color: "#1d4ed8",
+    background: portalTheme.colors.primarySoft,
+    color: portalTheme.colors.primary,
     fontSize: "12px",
     fontWeight: 700,
     marginBottom: "12px",
   },
   title: {
     margin: "0 0 10px 0",
-    fontSize: "36px",
+    fontSize: "42px",
     fontWeight: 900,
-    color: "#0f172a",
+    color: portalTheme.colors.textStrong,
   },
   subtitle: {
     margin: 0,
-    color: "#64748b",
-    fontSize: "14px",
+    color: portalTheme.colors.textMuted,
+    fontSize: "15px",
+    lineHeight: 1.6,
   },
-  backLink: {
-    padding: "12px 16px",
-    background: "#ffffff",
-    color: "#0f766e",
+  secondaryLink: {
+    ...portalButtonStyles.secondary,
+    color: portalTheme.colors.primaryStrong,
     textDecoration: "none",
-    borderRadius: "12px",
     fontSize: "14px",
-    fontWeight: 700,
-    border: "1px solid #cbd5e1",
+    padding: "10px 14px",
+  },
+  addButton: {
+    ...portalButtonStyles.primary,
+    padding: "12px 16px",
+    fontSize: "14px",
+    cursor: "pointer",
+  },
+  secondaryButton: {
+    ...portalButtonStyles.secondary,
+    padding: "12px 16px",
+    fontSize: "14px",
     cursor: "pointer",
   },
   messageBox: {
-    padding: "16px",
-    borderRadius: "12px",
-    marginBottom: "20px",
+    borderRadius: "14px",
+    padding: "14px 16px",
     fontSize: "14px",
     fontWeight: 700,
+    marginBottom: "18px",
   },
-  addButton: {
-    background: "#2563eb",
-    color: "#ffffff",
-    border: "none",
-    padding: "12px 16px",
-    borderRadius: "12px",
-    fontSize: "14px",
-    fontWeight: 700,
-    cursor: "pointer",
-    marginBottom: "20px",
+  successBox: {
+    background: portalTheme.colors.successBg,
+    color: portalTheme.colors.successText,
+    border: `1px solid ${portalTheme.colors.successLine}`,
+  },
+  errorBox: {
+    background: portalTheme.colors.dangerBg,
+    color: portalTheme.colors.dangerText,
+    border: `1px solid ${portalTheme.colors.dangerLine}`,
   },
   tableWrap: {
-    background: "#ffffff",
-    borderRadius: "18px",
-    padding: "20px",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+    background: portalTheme.gradients.card,
+    borderRadius: "20px",
+    border: `1px solid ${portalTheme.colors.line}`,
+    boxShadow: portalTheme.shadows.card,
     overflowX: "auto",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-  },
-  th: {
-    padding: "14px 12px",
-    borderBottom: "2px solid #e2e8f0",
-    background: "#f8fafc",
-    textAlign: "left",
-    fontSize: "14px",
-    color: "#334155",
-    fontWeight: 700,
-  },
-  td: {
-    padding: "14px 12px",
-    borderBottom: "1px solid #edf2f7",
-    fontSize: "14px",
-    color: "#334155",
-  },
-  tdStrong: {
-    padding: "14px 12px",
-    borderBottom: "1px solid #edf2f7",
-    fontSize: "14px",
-    fontWeight: 800,
-    color: "#0f172a",
-  },
-  row: {
-    cursor: "pointer",
-    transition: "background 0.15s ease",
   },
   stateBox: {
     textAlign: "center",
     padding: "40px 20px",
-    color: "#64748b",
+    color: portalTheme.colors.textMuted,
     fontSize: "14px",
-  },
-  editButton: {
-    background: "#0f766e",
-    color: "#ffffff",
-    border: "none",
-    padding: "8px 12px",
-    borderRadius: "8px",
-    fontSize: "12px",
-    fontWeight: 700,
-    cursor: "pointer",
-    marginRight: "8px",
-  },
-  deleteButton: {
-    background: "#dc2626",
-    color: "#ffffff",
-    border: "none",
-    padding: "8px 12px",
-    borderRadius: "8px",
-    fontSize: "12px",
-    fontWeight: 700,
-    cursor: "pointer",
   },
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    background: "rgba(15, 23, 42, 0.45)",
+    background: "rgba(10, 30, 58, 0.48)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 1000,
+    padding: "20px",
+    zIndex: 50,
   },
-  modalBox: {
+  modalCard: {
     width: "100%",
-    maxWidth: "500px",
-    background: "#ffffff",
+    maxWidth: "520px",
+    background: portalTheme.gradients.card,
     borderRadius: "20px",
-    padding: "24px",
-    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.25)",
+    padding: "22px",
+    boxShadow: portalTheme.shadows.modal,
+    border: `1px solid ${portalTheme.colors.line}`,
   },
   modalHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "20px",
+    gap: "12px",
+    marginBottom: "18px",
   },
   modalTitle: {
     margin: 0,
-    fontSize: "20px",
+    color: portalTheme.colors.textStrong,
+    fontSize: "24px",
     fontWeight: 900,
-    color: "#0f172a",
   },
   closeButton: {
     border: "none",
-    background: "#f1f5f9",
-    width: "36px",
-    height: "36px",
-    borderRadius: "10px",
+    background: "transparent",
+    color: portalTheme.colors.textPrimary,
+    fontSize: "22px",
     cursor: "pointer",
-    fontSize: "16px",
-    fontWeight: 700,
   },
   formGrid: {
     display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: "14px",
-    marginBottom: "20px",
+    gap: "16px",
   },
-  formField: {
+  label: {
     display: "flex",
     flexDirection: "column",
     gap: "8px",
-  },
-  formLabel: {
-    fontSize: "13px",
-    fontWeight: 700,
-    color: "#475569",
-  },
-  formInput: {
-    padding: "12px 14px",
-    borderRadius: "12px",
-    border: "1px solid #cbd5e1",
+    color: portalTheme.colors.textPrimary,
     fontSize: "14px",
-    outline: "none",
-    background: "#fff",
+    fontWeight: 700,
+  },
+  input: {
+    border: `1px solid ${portalTheme.colors.lineStrong}`,
+    borderRadius: "12px",
+    padding: "13px 14px",
+    fontSize: "14px",
+    color: portalTheme.colors.textStrong,
+    background: portalTheme.colors.surfaceCardAlt,
   },
   modalFooter: {
     display: "flex",
     justifyContent: "flex-end",
     gap: "10px",
-  },
-  secondaryButton: {
-    border: "1px solid #cbd5e1",
-    background: "#ffffff",
-    color: "#334155",
-    padding: "12px 16px",
-    borderRadius: "12px",
-    fontSize: "14px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  primaryButton: {
-    border: "none",
-    background: "#2563eb",
-    color: "#ffffff",
-    padding: "12px 16px",
-    borderRadius: "12px",
-    fontSize: "14px",
-    fontWeight: 700,
-    cursor: "pointer",
+    marginTop: "22px",
   },
 };

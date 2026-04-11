@@ -19,10 +19,29 @@ interface StudentModalProps {
   onSaveExamScores?: (
     examId: string,
     scores: Partial<Student>,
-    targetStudent?: Pick<Student, "student_id" | "name" | "branch_id">
+    targetStudent?: Pick<Student, "student_id" | "name" | "branch_id">,
+    options?: {
+      skipRefresh?: boolean;
+      suppressFeedback?: boolean;
+    }
   ) => Promise<void>;
-  onSavePhysicalRecord?: (record: PhysicalRecord) => Promise<void>;
+  onSavePhysicalRecord?: (
+    record: PhysicalRecord,
+    options?: {
+      skipRefresh?: boolean;
+      suppressFeedback?: boolean;
+    }
+  ) => Promise<void>;
 }
+
+type SaveNotice = {
+  type: "success" | "error";
+  message: string;
+};
+
+type StudentWithExamScores = Student & {
+  exam_scores?: Record<string, Partial<Student>>;
+};
 
 const emptyForm: Student = {
   student_id: "",
@@ -127,7 +146,17 @@ const examFieldKeys = [
   "inquiry1_name","inquiry1_raw","inquiry1_std","inquiry1_pct","inquiry1_grade",
   "inquiry2_name","inquiry2_raw","inquiry2_std","inquiry2_pct","inquiry2_grade",
   "history_raw","history_grade"
-];
+] as const;
+
+function pickExamFields(source: Partial<Student>) {
+  const nextFields: Partial<Student> = {};
+
+  examFieldKeys.forEach((key) => {
+    nextFields[key] = source[key];
+  });
+
+  return nextFields;
+}
 
 const EXAM_DRAFT_KEY_PREFIX = "draft_exam";
 const EXAM_DRAFT_DEBOUNCE_MS = 800;
@@ -179,6 +208,7 @@ export function StudentModal({
   const [physicalForm, setPhysicalForm] = useState(emptyPhysicalForm);
   const [hasUnsavedPhysicalChanges, setHasUnsavedPhysicalChanges] = useState(false);
   const [savingPhysical, setSavingPhysical] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<SaveNotice | null>(null);
   const leftPanelRef = useRef<HTMLDivElement | null>(null);
   const examScrollPositionsRef = useRef<Record<string, number>>({});
 
@@ -392,18 +422,18 @@ export function StudentModal({
 
   const handlePhysicalSave = async () => {
     if (!selectedPhysicalTestId) {
-      alert("실기 테스트를 선택하세요.");
+      setSaveNotice({ type: "error", message: "실기 테스트를 선택하세요." });
       return;
     }
 
     const studentId = getCurrentStudentId();
     if (!studentId) {
-      alert("학생 저장 후 실기 기록을 저장할 수 있습니다.");
+      setSaveNotice({ type: "error", message: "학생 저장 후 실기 기록을 저장할 수 있습니다." });
       return;
     }
 
     if (!onSavePhysicalRecord) {
-      alert("실기 기록 저장 기능을 사용할 수 없습니다.");
+      setSaveNotice({ type: "error", message: "실기 기록 저장 기능을 사용할 수 없습니다." });
       return;
     }
 
@@ -424,15 +454,21 @@ export function StudentModal({
         updated_at: new Date().toISOString(),
       };
 
-      await onSavePhysicalRecord(nextRecord);
+      await onSavePhysicalRecord(nextRecord, {
+        suppressFeedback: true,
+      });
       setOpenSections((prev) => ({
         ...prev,
         physical: true,
       }));
       setHasUnsavedPhysicalChanges(false);
+      setSaveNotice({ type: "success", message: "실기 기록을 저장했습니다." });
     } catch (error) {
       console.error("Physical save failed:", error);
-      alert("실기 기록 저장 중 오류가 발생했습니다.");
+      setSaveNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "실기 기록 저장 중 오류가 발생했습니다.",
+      });
     } finally {
       setSavingPhysical(false);
     }
@@ -447,11 +483,7 @@ export function StudentModal({
   }, []);
 
   const getCurrentExamFields = useCallback((): Partial<Student> => {
-    const currentExamFields: Partial<Student> = {};
-    examFieldKeys.forEach((key) => {
-      (currentExamFields as any)[key] = form[key as keyof Student];
-    });
-    return currentExamFields;
+    return pickExamFields(form);
   }, [form]);
 
   const readExamDraft = useCallback((studentId: string, examId: string) => {
@@ -617,10 +649,7 @@ export function StudentModal({
     if (currentExamId) {
       saveExamScrollPosition(currentExamId);
 
-      const currentExamFields: Partial<Student> = {};
-      examFieldKeys.forEach(key => {
-        (currentExamFields as any)[key] = form[key as keyof Student];
-      });
+      const currentExamFields = pickExamFields(form);
       setExamScores(prev => ({
         ...prev,
         [currentExamId]: {
@@ -795,8 +824,10 @@ export function StudentModal({
       });
 
       // On initial modal load, if saved exam data exists, restore
-      if ((student as any).exam_scores) {
-        setExamScores((student as any).exam_scores);
+      const studentWithExamScores = student as StudentWithExamScores;
+
+      if (studentWithExamScores.exam_scores) {
+        setExamScores(studentWithExamScores.exam_scores);
       } else {
         // Initialize exam scores with current student data
         const initialExamId = getResolvedExamId(s(student.exam_id));
@@ -891,8 +922,9 @@ export function StudentModal({
   );
 
   const handleSave = async () => {
+    setSaveNotice(null);
     if (!form.name || !form.school_name || !form.grade || !form.branch_id) {
-      alert("이름, 학교, 학년, 지점은 필수입니다.");
+      setSaveNotice({ type: "error", message: "이름, 학교, 학년, 지점은 필수입니다." });
       return;
     }
 
@@ -952,10 +984,20 @@ export function StudentModal({
       };
 
       // Add all exam drafts to the payload
-      (payload as any).exam_scores = examScores;
+      const payloadWithExamScores: StudentWithExamScores = {
+        ...payload,
+        exam_scores: examScores,
+      };
 
-      const savedStudent = await onSave(payload);
+      const savedStudent = await onSave(payloadWithExamScores);
       if (!savedStudent) {
+        setSaveNotice((prev) => prev ?? { type: "error", message: "학생 정보를 저장하지 못했습니다." });
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[StudentModal] basic save failed or cancelled", {
+            student_id: payload.student_id,
+            name: payload.name,
+          });
+        }
         return;
       }
 
@@ -974,19 +1016,38 @@ export function StudentModal({
 
       clearAllExamDrafts(getDraftStudentId());
 
-      // Save all exam scores if the callback is provided
+      let hasSavedExamScores = false;
+
+      // Save all exam scores without intermediate refresh or duplicate success banners.
       if (onSaveExamScores) {
         for (const [examId, scores] of Object.entries(examScores)) {
           if (examId && Object.keys(scores).length > 0) {
-            await onSaveExamScores(examId, scores, savedStudentContext);
+            hasSavedExamScores = true;
+            await onSaveExamScores(examId, scores, savedStudentContext, {
+              skipRefresh: true,
+              suppressFeedback: true,
+            });
           }
         }
       }
 
       setHasUnsavedExamChanges(false);
+      setSaveNotice({
+        type: "success",
+        message:
+          mode === "add"
+            ? "학생을 추가했습니다."
+            : hasSavedExamScores
+            ? "학생 정보와 성적을 저장했습니다."
+            : "학생 정보를 저장했습니다.",
+      });
+      onClose();
     } catch (error) {
       console.error("Save failed:", error);
-      alert("저장 중 오류가 발생했습니다.");
+      setSaveNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "저장 중 오류가 발생했습니다.",
+      });
     } finally {
       setSavingExam(false);
     }
@@ -998,7 +1059,7 @@ export function StudentModal({
     }
 
     if (!onSaveExamScores) {
-      alert("시험 성적만 저장하는 기능을 사용할 수 없습니다.");
+      setSaveNotice({ type: "error", message: "시험 성적만 저장하는 기능을 사용할 수 없습니다." });
       return;
     }
 
@@ -1007,17 +1068,15 @@ export function StudentModal({
       const currentStudentSnapshot = getCurrentStudentSnapshot();
 
       if (!currentStudentSnapshot.student_id) {
-        alert("학생 기본 정보를 먼저 저장하세요.");
+        setSaveNotice({ type: "error", message: "학생 기본 정보를 먼저 저장하세요." });
         return;
       }
 
-      const currentExamFields: Partial<Student> = {};
-      examFieldKeys.forEach((key) => {
-        (currentExamFields as any)[key] = form[key as keyof Student];
-      });
+      const currentExamFields = pickExamFields(form);
 
+      const studentWithExamScores = student as StudentWithExamScores | null;
       const existingExamScores = {
-        ...(((student as any)?.exam_scores as Record<string, Partial<Student>>) || {}),
+        ...(studentWithExamScores?.exam_scores || {}),
         ...examScores,
       };
 
@@ -1031,15 +1090,18 @@ export function StudentModal({
 
       setExamScores(nextExamScores);
 
-      await onSaveExamScores(currentExamId, {
-        ...currentExamFields,
-        ...({ exam_scores: nextExamScores } as any),
-      }, currentStudentSnapshot);
+      await onSaveExamScores(currentExamId, currentExamFields, currentStudentSnapshot, {
+        suppressFeedback: true,
+      });
       clearExamDraft(getDraftStudentId(), currentExamId);
       setHasUnsavedExamChanges(false);
+      setSaveNotice({ type: "success", message: "시험 성적을 저장했습니다." });
     } catch (error) {
       console.error("Exam save failed:", error);
-      alert("시험 성적 저장 중 오류가 발생했습니다.");
+      setSaveNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "시험 성적 저장 중 오류가 발생했습니다.",
+      });
     } finally {
       setSavingExam(false);
     }
@@ -1933,6 +1995,16 @@ export function StudentModal({
         </div>
 
         <div style={styles.modalFooter} className={classes.actionBar}>
+          {saveNotice ? (
+            <div
+              style={{
+                ...styles.noticeBox,
+                ...(saveNotice.type === "success" ? styles.noticeSuccess : styles.noticeError),
+              }}
+            >
+              {saveNotice.message}
+            </div>
+          ) : null}
           <button style={styles.secondaryButton} onClick={onClose} disabled={saving}>
             닫기
           </button>
@@ -2111,10 +2183,27 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   modalFooter: {
     display: "flex",
+    flexWrap: "wrap",
     justifyContent: "flex-end",
     gap: "10px",
     marginTop: "24px",
-    flexWrap: "wrap",
+  },
+  noticeBox: {
+    flex: "1 1 100%",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  noticeSuccess: {
+    background: "#dcfce7",
+    color: "#166534",
+    border: "1px solid #86efac",
+  },
+  noticeError: {
+    background: "#fee2e2",
+    color: "#991b1b",
+    border: "1px solid #fecaca",
   },
   secondaryButton: {
     border: "1px solid #cbd5e1",

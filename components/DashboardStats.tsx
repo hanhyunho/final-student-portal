@@ -1,4 +1,5 @@
 import React from "react";
+import { portalTheme } from "@/lib/theme";
 
 interface Summary {
   count: number;
@@ -20,6 +21,8 @@ interface DashboardStatsProps {
 }
 
 export function DashboardStats({ summary, quickStats }: DashboardStatsProps) {
+  void quickStats;
+
   const styles: { [key: string]: React.CSSProperties } = {
     summaryGrid: {
       display: "grid",
@@ -28,68 +31,44 @@ export function DashboardStats({ summary, quickStats }: DashboardStatsProps) {
       marginBottom: "20px",
     },
     summaryCard: {
-      background: "#ffffff",
-      borderRadius: "18px",
+      background: portalTheme.gradients.card,
+      borderRadius: portalTheme.radius.md,
       padding: "18px 20px",
-      boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-      border: "1px solid #eef2f7",
+      boxShadow: portalTheme.shadows.card,
+      border: `1px solid ${portalTheme.colors.line}`,
+      borderLeft: `4px solid ${portalTheme.colors.primary}`,
     },
     summaryLabel: {
       display: "block",
       fontSize: "13px",
-      color: "#64748b",
+      color: portalTheme.colors.textMuted,
       marginBottom: "10px",
     },
     summaryValue: {
       fontSize: "30px",
       fontWeight: 900,
-      color: "#0f172a",
-    },
-    quickStatsWrap: {
-      display: "flex",
-      gap: "10px",
-      flexWrap: "wrap",
-      marginBottom: "20px",
-    },
-    quickChip: {
-      background: "#ffffff",
-      border: "1px solid #e2e8f0",
-      boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
-      color: "#0f172a",
-      borderRadius: "999px",
-      padding: "10px 14px",
-      fontSize: "13px",
-      fontWeight: 800,
+      color: portalTheme.colors.textStrong,
     },
   };
 
   return (
-    <>
-      <section style={styles.summaryGrid}>
-        <div style={styles.summaryCard}>
-          <span style={styles.summaryLabel}>표시 학생 수</span>
-          <strong style={styles.summaryValue}>{summary.count}명</strong>
-        </div>
-        <div style={styles.summaryCard}>
-          <span style={styles.summaryLabel}>활성 학생 수</span>
-          <strong style={styles.summaryValue}>{summary.activeCount}명</strong>
-        </div>
-        <div style={styles.summaryCard}>
-          <span style={styles.summaryLabel}>전체 평균</span>
-          <strong style={styles.summaryValue}>{summary.avgScore}</strong>
-        </div>
-        <div style={styles.summaryCard}>
-          <span style={styles.summaryLabel}>최고 평균</span>
-          <strong style={styles.summaryValue}>{summary.topAvg}</strong>
-        </div>
-      </section>
-
-      <section style={styles.quickStatsWrap}>
-        <div style={styles.quickChip}>평균 80↑ {quickStats.avg80}명</div>
-        <div style={styles.quickChip}>국어 1~2등급 {quickStats.koreanTop}명</div>
-        <div style={styles.quickChip}>수학 1~2등급 {quickStats.mathTop}명</div>
-        <div style={styles.quickChip}>활성 학생 {quickStats.active}명</div>
-      </section>
-    </>
+    <section style={styles.summaryGrid}>
+      <div style={styles.summaryCard}>
+        <span style={styles.summaryLabel}>표시 학생 수</span>
+        <strong style={styles.summaryValue}>{summary.count}명</strong>
+      </div>
+      <div style={styles.summaryCard}>
+        <span style={styles.summaryLabel}>활성 학생 수</span>
+        <strong style={styles.summaryValue}>{summary.activeCount}명</strong>
+      </div>
+      <div style={styles.summaryCard}>
+        <span style={styles.summaryLabel}>전체 평균</span>
+        <strong style={styles.summaryValue}>{summary.avgScore}</strong>
+      </div>
+      <div style={styles.summaryCard}>
+        <span style={styles.summaryLabel}>최고 평균</span>
+        <strong style={styles.summaryValue}>{summary.topAvg}</strong>
+      </div>
+    </section>
   );
 }
