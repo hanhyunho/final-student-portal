@@ -107,7 +107,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const studentId = studentIdParam.trim();
+    const studentId = (studentIdParam ?? "").trim();
 
     const [mockExams, mockScoreRows, physicalTests, physicalRecordRows] = await Promise.all([
       getMockExamsSheet(),
