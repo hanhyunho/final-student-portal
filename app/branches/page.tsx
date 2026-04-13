@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { AdminHeader } from "@/components/AdminHeader";
 import { BranchesTable } from "@/components/BranchesTable";
 import {
   createBranch,
@@ -15,7 +15,7 @@ import {
   usePortalSharedBranches,
   usePortalSharedStudents,
 } from "@/lib/portalStore";
-import { portalButtonStyles, portalTheme } from "@/lib/theme";
+import { portalButtonStyles, portalLayout, portalTheme } from "@/lib/theme";
 
 function stringValue(value: unknown) {
   return String(value ?? "").trim();
@@ -153,20 +153,6 @@ function countStudentsByBranch(students: Student[]) {
     accumulator[branchId] = (accumulator[branchId] || 0) + 1;
     return accumulator;
   }, {});
-}
-
-async function safeJson(response: Response) {
-  const text = await response.text();
-
-  if (!text || !text.trim()) {
-    return { ok: false, success: false, error: "서버 응답이 비어 있습니다." };
-  }
-
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return { ok: false, success: false, error: `JSON이 아닌 응답입니다: ${text}` };
-  }
 }
 
 function upsertBranchInList(branches: Branch[], nextBranch: Branch) {
@@ -372,16 +358,15 @@ export default function BranchesPage() {
   return (
     <main style={styles.page}>
       <div style={styles.container}>
+        <AdminHeader isSuperAdmin />
+
         <header style={styles.header}>
           <div>
-            <p style={styles.badge}>FINAL 관리자 시스템</p>
-            <h1 style={styles.title}>지점 관리</h1>
+            <p style={styles.badge}>메인 / 지점관리</p>
+            <h1 style={styles.title}>지점관리</h1>
             <p style={styles.subtitle}>지점을 추가, 수정, 삭제하고 학생 수를 빠르게 확인합니다.</p>
           </div>
           <div style={styles.headerActions}>
-            <Link href="/" style={styles.secondaryLink}>
-              ← 대시보드로 돌아가기
-            </Link>
             <button style={styles.addButton} onClick={openAddModal}>
               + 새 지점 추가
             </button>
@@ -453,24 +438,26 @@ const styles: { [key: string]: React.CSSProperties } = {
   page: {
     minHeight: "100vh",
     background: portalTheme.gradients.page,
-    padding: "32px 20px 40px",
+    padding: portalLayout.pagePaddingWide,
     fontFamily: "Arial, sans-serif",
   },
   container: {
-    maxWidth: "1200px",
+    maxWidth: portalLayout.containerMaxWidth,
     margin: "0 auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: portalLayout.sectionGap,
   },
   header: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    gap: "20px",
-    marginBottom: "20px",
-    padding: "24px 26px",
+    gap: "24px",
+    padding: portalLayout.cardPadding,
     borderRadius: "24px",
-    background: portalTheme.gradients.header,
+    background: portalTheme.gradients.card,
     border: `1px solid ${portalTheme.colors.line}`,
-    boxShadow: portalTheme.shadows.card,
+    boxShadow: portalTheme.shadows.panel,
   },
   headerActions: {
     display: "flex",
@@ -479,33 +466,30 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: "flex-end",
   },
   badge: {
-    display: "inline-block",
+    display: "inline-flex",
+    alignItems: "center",
     padding: "7px 12px",
     borderRadius: "999px",
     background: portalTheme.colors.primarySoft,
     color: portalTheme.colors.primary,
     fontSize: "12px",
-    fontWeight: 700,
+    fontWeight: 800,
     marginBottom: "12px",
+    letterSpacing: "0.08em",
   },
   title: {
     margin: "0 0 10px 0",
-    fontSize: "42px",
+    fontSize: "clamp(40px, 6vw, 58px)",
     fontWeight: 900,
     color: portalTheme.colors.textStrong,
+    lineHeight: 1.04,
+    letterSpacing: "-0.05em",
   },
   subtitle: {
     margin: 0,
     color: portalTheme.colors.textMuted,
     fontSize: "15px",
     lineHeight: 1.6,
-  },
-  secondaryLink: {
-    ...portalButtonStyles.secondary,
-    color: portalTheme.colors.primaryStrong,
-    textDecoration: "none",
-    fontSize: "14px",
-    padding: "10px 14px",
   },
   addButton: {
     ...portalButtonStyles.primary,
@@ -542,6 +526,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     border: `1px solid ${portalTheme.colors.line}`,
     boxShadow: portalTheme.shadows.card,
     overflowX: "auto",
+    width: "100%",
   },
   stateBox: {
     textAlign: "center",

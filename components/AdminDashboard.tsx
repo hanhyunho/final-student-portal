@@ -1,19 +1,9 @@
 import React, { useMemo, useState } from "react";
-import type {
-  Branch,
-  MockExam,
-  MockScore,
-  PhysicalRecord,
-  PhysicalTest,
-  Student,
-  StudentMockChartPoint,
-  StudentPhysicalChartPoint,
-} from "@/lib/dataService";
+import type { Branch, MockExam, MockScore, PhysicalRecord, PhysicalTest, Student } from "@/lib/dataService";
 import { DashboardStats } from "@/components/DashboardStats";
 import { StatsPanel } from "@/components/StatsPanel";
 import { ChartPanel } from "@/components/ChartPanel";
 import { StudentTable } from "@/components/StudentTable";
-import { StudentDetailPanel } from "@/components/StudentDetailPanel";
 import { EmptyState } from "@/components/EmptyState";
 import { getFeedbackPalette, portalButtonStyles, portalTheme } from "@/lib/theme";
 
@@ -22,19 +12,20 @@ type FeedbackMessage = {
   message: string;
 };
 
+type DashboardView = "branch-analysis" | "student-management";
+
 interface AdminDashboardProps {
   feedback: FeedbackMessage | null;
   loading: boolean;
+  activeView: DashboardView;
   selectedStudent: Student | null;
   selectedStudentId: string | null;
-  selectedStudentMockChartData: StudentMockChartPoint[];
-  selectedStudentPhysicalChartData: StudentPhysicalChartPoint[];
+  mockExams: MockExam[];
   filteredStudents: Student[];
   scopedBranches: Branch[];
   scopedStudents: Student[];
   scopedMockScores: MockScore[];
   scopedPhysicalRecords: PhysicalRecord[];
-  mockExams: MockExam[];
   physicalTests: PhysicalTest[];
   branchOptions: string[];
   branchFilter: string;
@@ -65,36 +56,27 @@ interface AdminDashboardProps {
   onSelectStudent: (studentId: string) => void;
   onOpenDetail: (studentId?: string) => void;
   onMoveSelection: (direction: "prev" | "next") => void;
-  onExportAllCsv: () => void;
-  onExportBranchCsv: () => void;
   onPrint: () => void;
-  onPrintSelected: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
   onAdd: () => void;
   getAverageNumber: (student: Student) => number;
   getStudentLoginStatus: (student: Student) => string;
   getStatusStyle: (status: string | undefined) => React.CSSProperties;
-  getGradeBadgeStyle: (grade: string | number | undefined) => React.CSSProperties;
   getBranchLabel: (branchId: string | undefined) => string;
-  getScoreNumber: (value: string | number | undefined) => number;
-  getBarWidth: (value: string | number | undefined) => string;
   s: (value: unknown) => string;
 }
 
 export function AdminDashboard({
   feedback,
   loading,
+  activeView,
   selectedStudent,
   selectedStudentId,
-  selectedStudentMockChartData,
-  selectedStudentPhysicalChartData,
+  mockExams,
   filteredStudents,
   scopedBranches,
   scopedStudents,
   scopedMockScores,
   scopedPhysicalRecords,
-  mockExams,
   physicalTests,
   branchOptions,
   branchFilter,
@@ -115,20 +97,12 @@ export function AdminDashboard({
   onSelectStudent,
   onOpenDetail,
   onMoveSelection,
-  onExportAllCsv,
-  onExportBranchCsv,
   onPrint,
-  onPrintSelected,
-  onEdit,
-  onDelete,
   onAdd,
   getAverageNumber,
   getStudentLoginStatus,
   getStatusStyle,
-  getGradeBadgeStyle,
   getBranchLabel,
-  getScoreNumber,
-  getBarWidth,
   s,
 }: AdminDashboardProps) {
   const bannerStyle = feedback ? getFeedbackPalette(feedback.type) : null;
@@ -161,198 +135,127 @@ export function AdminDashboard({
         </div>
       ) : null}
 
-      <DashboardStats summary={summary} quickStats={quickStats} />
-      <StatsPanel
-        branches={scopedBranches}
-        students={scopedStudents}
-        mockExams={mockExams}
-        mockScores={scopedMockScores}
-        physicalTests={physicalTests}
-        physicalRecords={scopedPhysicalRecords}
-      />
-      <ChartPanel branches={scopedBranches} students={scopedStudents} physicalTests={physicalTests} physicalRecords={scopedPhysicalRecords} />
+      {activeView === "branch-analysis" ? (
+        <>
+          <section style={analysisIntroStyle}>
+            <div>
+              <h2 style={sectionTitleStyle}>분석 카드 및 비교 차트</h2>
+              <p style={sectionDescStyle}>상단 본문 타이틀 아래에서는 지점별 TOP 분석과 평균 비교 카드, 차트만 집중해서 볼 수 있도록 정리했습니다.</p>
+            </div>
+          </section>
 
-      <section
-        style={{
-          background: portalTheme.gradients.card,
-          border: `1px solid ${portalTheme.colors.line}`,
-          borderRadius: portalTheme.radius.md,
-          borderLeft: `5px solid ${portalTheme.colors.primaryStrong}`,
-          padding: "clamp(16px, 3vw, 22px)",
-          boxShadow: portalTheme.shadows.panel,
-          display: "flex",
-          flexDirection: "column",
-          gap: "18px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "10px",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <div>
-            <h2 style={{ margin: 0, fontSize: "clamp(20px, 3vw, 24px)", fontWeight: 900, color: portalTheme.colors.textStrong, letterSpacing: "-0.03em" }}>학생 관리</h2>
-            <p style={{ margin: "6px 0 0 0", color: portalTheme.colors.textMuted, fontSize: "14px", lineHeight: 1.6 }}>
-              학생 목록에서 학생을 선택하면 아래 영역에서 핵심 정보와 추이 차트를 바로 확인할 수 있습니다.
-            </p>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-          <input
-            type="text"
-            placeholder="이름 / 학교 / 학번 검색"
-            value={searchInput}
-            onChange={(event) => onSearchInputChange(event.target.value)}
-            style={fieldStyle}
+          <DashboardStats summary={summary} quickStats={quickStats} />
+          <StatsPanel
+            branches={scopedBranches}
+            students={scopedStudents}
+            mockExams={mockExams}
+            mockScores={scopedMockScores}
+            physicalTests={physicalTests}
+            physicalRecords={scopedPhysicalRecords}
           />
+          <ChartPanel
+            branches={scopedBranches}
+            students={scopedStudents}
+            physicalTests={physicalTests}
+            physicalRecords={scopedPhysicalRecords}
+          />
+        </>
+      ) : (
+        <section style={managementSectionStyle}>
+          <div style={managementHeaderStyle}>
+            <div>
+              <h2 style={sectionTitleStyle}>학생 목록 및 운영 도구</h2>
+              <p style={sectionDescStyle}>상단 본문 타이틀은 크게 유지하고, 이 영역은 목록과 검색, 필터, 운영 액션에 집중하도록 중복 제목을 줄였습니다.</p>
+            </div>
+          </div>
 
-          {isSuperAdmin ? (
-            <select value={branchFilter} onChange={(event) => onBranchFilterChange(event.target.value)} style={selectStyle}>
-              {branchOptions.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch === "ALL" ? "전체 지점" : getBranchLabel(branch)}
-                </option>
-              ))}
+          <div style={filterRowStyle}>
+            <input
+              type="text"
+              placeholder="이름 / 학교 / 학번 검색"
+              value={searchInput}
+              onChange={(event) => onSearchInputChange(event.target.value)}
+              style={searchFieldStyle}
+            />
+
+            {isSuperAdmin ? (
+              <select value={branchFilter} onChange={(event) => onBranchFilterChange(event.target.value)} style={compactSelectStyle}>
+                {branchOptions.map((branch) => (
+                  <option key={branch} value={branch}>
+                    {branch === "ALL" ? "전체 지점" : getBranchLabel(branch)}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+
+            <select value={loginFilter} onChange={(event) => onLoginFilterChange(event.target.value)} style={compactSelectStyle}>
+              <option value="ALL">전체 로그인여부</option>
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
             </select>
-          ) : null}
 
-          <select value={loginFilter} onChange={(event) => onLoginFilterChange(event.target.value)} style={selectStyle}>
-            <option value="ALL">전체 로그인여부</option>
-            <option value="active">active</option>
-            <option value="inactive">inactive</option>
-          </select>
+            <select value={studentStatusFilter} onChange={(event) => onStudentStatusFilterChange(event.target.value)} style={compactSelectStyle}>
+              <option value="ALL">전체 상태</option>
+              <option value="등록">등록</option>
+              <option value="휴원">휴원</option>
+              <option value="졸업">졸업</option>
+              <option value="퇴원">퇴원</option>
+            </select>
 
-          <select value={studentStatusFilter} onChange={(event) => onStudentStatusFilterChange(event.target.value)} style={selectStyle}>
-            <option value="ALL">전체 상태</option>
-            <option value="등록">등록</option>
-            <option value="휴원">휴원</option>
-            <option value="졸업">졸업</option>
-            <option value="퇴원">퇴원</option>
-          </select>
+            <select value={sortType} onChange={(event) => onSortTypeChange(event.target.value)} style={compactSelectStyle}>
+              <option value="default">기본순</option>
+              <option value="name">이름순</option>
+              <option value="studentNo">학번순</option>
+              <option value="avgDesc">평균 높은순</option>
+              <option value="koreanDesc">국어 높은순</option>
+              <option value="mathDesc">수학 높은순</option>
+              <option value="englishDesc">영어 높은순</option>
+            </select>
 
-          <select value={sortType} onChange={(event) => onSortTypeChange(event.target.value)} style={selectStyle}>
-            <option value="default">기본순</option>
-            <option value="name">이름순</option>
-            <option value="studentNo">학번순</option>
-            <option value="avgDesc">평균 높은순</option>
-            <option value="koreanDesc">국어 높은순</option>
-            <option value="mathDesc">수학 높은순</option>
-            <option value="englishDesc">영어 높은순</option>
-          </select>
-
-          <select value={visibleCount} onChange={(event) => setVisibleCount(event.target.value)} style={{ ...selectStyle, flex: "0 1 120px" }}>
-            <option value="10">10명</option>
-            <option value="20">20명</option>
-            <option value="30">30명</option>
-          </select>
-        </div>
-
-        <div
-          style={{
-            position: "sticky",
-            top: "12px",
-            zIndex: 10,
-            background: portalTheme.colors.surfaceCard,
-            border: `1px solid ${portalTheme.colors.line}`,
-            borderRadius: portalTheme.radius.md,
-            boxShadow: portalTheme.shadows.soft,
-            padding: "10px 12px",
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              flexWrap: "wrap",
-            }}
-          >
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                padding: "7px 11px",
-                borderRadius: portalTheme.radius.pill,
-                background: selectedStudent ? portalTheme.colors.surfaceAccent : portalTheme.colors.surfacePanel,
-                color: selectedStudent ? portalTheme.colors.textStrong : portalTheme.colors.textMuted,
-                fontSize: "12px",
-                fontWeight: 800,
-                boxShadow: "none",
-                border: `1px solid ${selectedStudent ? portalTheme.colors.primaryTint : portalTheme.colors.line}`,
-              }}
-            >
-              선택 학생: {selectedStudent ? s(selectedStudent.name) : "학생을 선택하세요"}
-            </span>
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                padding: "7px 11px",
-                borderRadius: portalTheme.radius.pill,
-                background: portalTheme.colors.surfacePanel,
-                color: portalTheme.colors.textMuted,
-                fontSize: "12px",
-                fontWeight: 800,
-                border: `1px solid ${portalTheme.colors.line}`,
-              }}
-            >
-              목록 {visibleStudents.length} / 전체 {filteredStudents.length}
-            </span>
+            <select value={visibleCount} onChange={(event) => setVisibleCount(event.target.value)} style={countSelectStyle}>
+              <option value="10">10명</option>
+              <option value="20">20명</option>
+              <option value="30">30명</option>
+            </select>
           </div>
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-            <button style={secondaryButtonStyle} onClick={() => onMoveSelection("prev")} disabled={filteredStudents.length === 0 || selectedIndex <= 0}>
-              이전
-            </button>
-            <button
-              style={secondaryButtonStyle}
-              onClick={() => onMoveSelection("next")}
-              disabled={filteredStudents.length === 0 || selectedIndex === -1 || selectedIndex >= filteredStudents.length - 1}
-            >
-              다음
-            </button>
-            <button
-              style={secondaryButtonStyle}
-              onClick={() => selectedStudentId && onOpenDetail(selectedStudentId)}
-              disabled={!selectedStudentId}
-            >
-              상세보기
-            </button>
-            {canManageStudents ? (
-              <button style={primaryButtonStyle} onClick={onEdit} disabled={!selectedStudent}>
-                수정
-              </button>
-            ) : null}
-            {canManageStudents ? (
-              <button style={dangerButtonStyle} onClick={onDelete} disabled={!selectedStudent}>
-                삭제
-              </button>
-            ) : null}
-            {canManageStudents ? (
-              <button style={primaryButtonStyle} onClick={onAdd}>
-                + 학생 추가
-              </button>
-            ) : null}
-            <button style={secondaryButtonStyle} onClick={onPrint}>
-              목록 인쇄
-            </button>
-            <button style={secondaryButtonStyle} onClick={onPrintSelected} disabled={!selectedStudent}>
-              학생 인쇄
-            </button>
-          </div>
-        </div>
+          <div style={toolbarStyle}>
+            <div style={toolbarInfoStyle}>
+              <span
+                style={{
+                  ...toolbarPillStyle,
+                  background: selectedStudent ? portalTheme.colors.surfaceAccent : portalTheme.colors.surfacePanel,
+                  color: selectedStudent ? portalTheme.colors.textStrong : portalTheme.colors.textMuted,
+                  border: `1px solid ${selectedStudent ? portalTheme.colors.primaryTint : portalTheme.colors.line}`,
+                }}
+              >
+                선택 학생: {selectedStudent ? s(selectedStudent.name) : "학생을 선택하세요"}
+              </span>
+              <span style={toolbarPillStyle}>목록 {visibleStudents.length} / 전체 {filteredStudents.length}</span>
+            </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              <button style={secondaryButtonStyle} onClick={() => onMoveSelection("prev")} disabled={filteredStudents.length === 0 || selectedIndex <= 0}>
+                이전
+              </button>
+              <button
+                style={secondaryButtonStyle}
+                onClick={() => onMoveSelection("next")}
+                disabled={filteredStudents.length === 0 || selectedIndex === -1 || selectedIndex >= filteredStudents.length - 1}
+              >
+                다음
+              </button>
+              {canManageStudents ? (
+                <button style={primaryButtonStyle} onClick={onAdd}>
+                  + 학생 추가
+                </button>
+              ) : null}
+              <button style={secondaryButtonStyle} onClick={onPrint}>
+                목록 인쇄
+              </button>
+            </div>
+          </div>
+
           <div
             style={{
               background: portalTheme.colors.surfaceCardAlt,
@@ -368,6 +271,7 @@ export function AdminDashboard({
               loading={loading}
               onSelectStudent={onSelectStudent}
               onDoubleClick={onOpenDetail}
+              onOpenDetail={onOpenDetail}
               getBranchLabel={getBranchLabel}
               getStudentLoginStatus={getStudentLoginStatus}
               getStatusStyle={getStatusStyle}
@@ -376,35 +280,104 @@ export function AdminDashboard({
             />
           </div>
 
-          {selectedStudent ? (
-            <>
-              <StudentDetailPanel
-                student={selectedStudent}
-                mockChartData={selectedStudentMockChartData}
-                physicalChartData={selectedStudentPhysicalChartData}
-                canManage={canManageStudents}
-                sticky={false}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onShowDetail={() => selectedStudentId && onOpenDetail(selectedStudentId)}
-                getAverageNumber={getAverageNumber}
-                getGradeBadgeStyle={getGradeBadgeStyle}
-                getBranchLabel={getBranchLabel}
-                s={s}
-              />
-            </>
-          ) : (
-            <EmptyState title="학생을 선택하세요" description="학생을 선택하면 아래 영역에 모의고사 요약과 상세 정보가 표시됩니다." />
-          )}
-        </div>
-      </section>
+          {!selectedStudent ? (
+            <EmptyState title="학생을 선택하세요" description="목록에서 학생을 선택하거나 각 행의 상세보기 버튼으로 큰 상세 화면을 열 수 있습니다." />
+          ) : null}
+        </section>
+      )}
     </div>
   );
 }
 
+const analysisIntroStyle: React.CSSProperties = {
+  background: portalTheme.gradients.card,
+  border: `1px solid ${portalTheme.colors.line}`,
+  borderRadius: portalTheme.radius.md,
+  borderLeft: `5px solid #7c3aed`,
+  padding: "18px 22px",
+  boxShadow: portalTheme.shadows.panel,
+};
+
+const managementSectionStyle: React.CSSProperties = {
+  background: portalTheme.gradients.card,
+  border: `1px solid ${portalTheme.colors.line}`,
+  borderRadius: portalTheme.radius.md,
+  borderLeft: `5px solid ${portalTheme.colors.primaryStrong}`,
+  padding: "clamp(16px, 3vw, 22px)",
+  boxShadow: portalTheme.shadows.panel,
+  display: "flex",
+  flexDirection: "column",
+  gap: "18px",
+};
+
+const managementHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "10px",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+};
+
+const filterRowStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "10px",
+  alignItems: "center",
+};
+
+const toolbarStyle: React.CSSProperties = {
+  position: "sticky",
+  top: "12px",
+  zIndex: 10,
+  background: portalTheme.colors.surfaceCard,
+  border: `1px solid ${portalTheme.colors.line}`,
+  borderRadius: portalTheme.radius.md,
+  boxShadow: portalTheme.shadows.soft,
+  padding: "10px 12px",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "8px",
+  justifyContent: "space-between",
+  alignItems: "center",
+};
+
+const toolbarInfoStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+};
+
+const toolbarPillStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "7px 11px",
+  borderRadius: portalTheme.radius.pill,
+  background: portalTheme.colors.surfacePanel,
+  color: portalTheme.colors.textMuted,
+  fontSize: "12px",
+  fontWeight: 800,
+  boxShadow: "none",
+  border: `1px solid ${portalTheme.colors.line}`,
+};
+
+const sectionTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "clamp(20px, 3vw, 24px)",
+  fontWeight: 900,
+  color: portalTheme.colors.textStrong,
+  letterSpacing: "-0.03em",
+};
+
+const sectionDescStyle: React.CSSProperties = {
+  margin: "6px 0 0 0",
+  color: portalTheme.colors.textMuted,
+  fontSize: "14px",
+  lineHeight: 1.6,
+};
+
 const fieldStyle: React.CSSProperties = {
-  flex: "1 1 280px",
-  minWidth: "min(100%, 220px)",
+  minWidth: 0,
   padding: "clamp(10px, 2.4vw, 13px) clamp(12px, 2.8vw, 14px)",
   borderRadius: portalTheme.radius.sm,
   border: `1px solid ${portalTheme.colors.line}`,
@@ -412,11 +385,26 @@ const fieldStyle: React.CSSProperties = {
   background: portalTheme.colors.surfaceCardAlt,
   color: portalTheme.colors.textStrong,
   boxShadow: "none",
+  textAlign: "left",
 };
 
-const selectStyle: React.CSSProperties = {
+const searchFieldStyle: React.CSSProperties = {
   ...fieldStyle,
-  flex: "0 1 180px",
+  flex: "1 1 320px",
+  minWidth: "240px",
+};
+
+const compactSelectStyle: React.CSSProperties = {
+  ...fieldStyle,
+  flex: "0 1 150px",
+  minWidth: "138px",
+  height: "44px",
+};
+
+const countSelectStyle: React.CSSProperties = {
+  ...compactSelectStyle,
+  flex: "0 0 110px",
+  minWidth: "110px",
 };
 
 const secondaryButtonStyle: React.CSSProperties = {
@@ -428,13 +416,6 @@ const secondaryButtonStyle: React.CSSProperties = {
 
 const primaryButtonStyle: React.CSSProperties = {
   ...portalButtonStyles.primary,
-  padding: "clamp(8px, 2vw, 11px) clamp(11px, 2.6vw, 14px)",
-  fontSize: "clamp(12px, 1.8vw, 13px)",
-  cursor: "pointer",
-};
-
-const dangerButtonStyle: React.CSSProperties = {
-  ...portalButtonStyles.warning,
   padding: "clamp(8px, 2vw, 11px) clamp(11px, 2.6vw, 14px)",
   fontSize: "clamp(12px, 1.8vw, 13px)",
   cursor: "pointer",

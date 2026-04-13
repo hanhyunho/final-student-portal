@@ -48,13 +48,15 @@ function BranchesTableComponent({
         <td style={styles.tdNumber}>
           {countsLoading && !(branchId in studentCounts) ? "계산 중..." : getStudentCount(branchId)}
         </td>
-        <td style={styles.td}>
-          <button style={styles.editButton} onClick={() => onEdit(branch)} disabled={saving}>
-            수정
-          </button>
-          <button style={styles.deleteButton} onClick={() => onDelete(branch)} disabled={saving}>
-            삭제
-          </button>
+        <td style={styles.tdAction}>
+          <div style={styles.actionGroup}>
+            <button style={styles.editButton} onClick={() => onEdit(branch)} disabled={saving}>
+              수정
+            </button>
+            <button style={styles.deleteButton} onClick={() => onDelete(branch)} disabled={saving}>
+              삭제
+            </button>
+          </div>
         </td>
       </tr>
     );
@@ -87,17 +89,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: "14px 12px",
     borderBottom: `2px solid ${portalTheme.colors.lineStrong}`,
     background: portalTheme.colors.surfacePanel,
-    textAlign: "left",
+    textAlign: "center",
     fontSize: "14px",
     color: portalTheme.colors.textPrimary,
-    fontWeight: 700,
+    fontWeight: 800,
     letterSpacing: "0.01em",
+    verticalAlign: "middle",
   },
   td: {
     padding: "14px 12px",
     borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
     fontSize: "14px",
     color: portalTheme.colors.textPrimary,
+    textAlign: "center",
+    verticalAlign: "middle",
   },
   tdStrong: {
     padding: "14px 12px",
@@ -105,6 +110,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "14px",
     fontWeight: 800,
     color: portalTheme.colors.textStrong,
+    textAlign: "left",
+    verticalAlign: "middle",
   },
   tdCode: {
     padding: "14px 12px",
@@ -112,6 +119,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "13px",
     fontWeight: 700,
     color: portalTheme.colors.cyan,
+    textAlign: "center",
+    verticalAlign: "middle",
   },
   tdNumber: {
     padding: "14px 12px",
@@ -119,8 +128,15 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "14px",
     fontWeight: 800,
     color: portalTheme.colors.textStrong,
-    textAlign: "right",
+    textAlign: "center",
     fontVariantNumeric: "tabular-nums",
+    verticalAlign: "middle",
+  },
+  tdAction: {
+    padding: "14px 12px",
+    borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
+    textAlign: "center",
+    verticalAlign: "middle",
   },
   row: {
     cursor: "pointer",
@@ -129,22 +145,34 @@ const styles: { [key: string]: React.CSSProperties } = {
   statusBadge: {
     display: "inline-flex",
     alignItems: "center",
+    justifyContent: "center",
     padding: "5px 10px",
     borderRadius: portalTheme.radius.pill,
     fontSize: "12px",
     fontWeight: 700,
     border: "1px solid transparent",
   },
+  actionGroup: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+  },
   editButton: {
     ...portalButtonStyles.success,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     padding: "8px 12px",
     fontSize: "12px",
     fontWeight: 700,
     cursor: "pointer",
-    marginRight: "8px",
   },
   deleteButton: {
     ...portalButtonStyles.warning,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     padding: "8px 12px",
     fontSize: "12px",
     fontWeight: 700,

@@ -40,7 +40,8 @@ export function StudentRowStatusPanel({
           setSelectedTab(tab);
         }}
         style={{
-          padding: "6px 10px",
+          padding: "7px 10px",
+          minHeight: "32px",
           minWidth: "42px",
           borderRadius: "999px",
           border: `1px solid ${isActive ? activeStyle.border : portalTheme.colors.line}`,
@@ -65,9 +66,10 @@ export function StudentRowStatusPanel({
     <div
       style={{
         width: "max-content",
+        minWidth: "100%",
         display: "flex",
         alignItems: "center",
-        justifyContent: "flex-start",
+        justifyContent: "center",
         gap: "8px",
         whiteSpace: "nowrap",
       }}

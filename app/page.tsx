@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { createRoot } from "react-dom/client";
 import { saveMockScore, savePhysicalRecord, saveStudent } from "@/lib/api";
 import type {
   Account,
@@ -37,11 +38,13 @@ import {
   upsertPortalSharedStudent,
   usePortalSharedStore,
 } from "@/lib/portalStore";
-import { AdminDashboard } from "@/components/AdminDashboard";
+import { AdminDashboard } from "../components/AdminDashboard";
+import { AdminHeader } from "@/components/AdminHeader";
 import { StudentDashboard } from "@/components/StudentDashboard";
 import { StudentDetailPanel } from "@/components/StudentDetailPanel";
+import { PrintStudentDetail } from "@/components/PrintStudentDetail";
 import { StudentModal } from "@/components/StudentModal";
-import { portalButtonStyles, portalTheme } from "@/lib/theme";
+import { portalButtonStyles, portalLayout, portalTheme } from "@/lib/theme";
 
 type SortType =
   | "default"
@@ -53,6 +56,8 @@ type SortType =
   | "englishDesc";
 
 type ModalMode = "add" | "edit";
+
+type DashboardView = "branch-analysis" | "student-management";
 
 type Role = "super_admin" | "branch_manager" | "student" | "";
 
@@ -656,11 +661,6 @@ function getGradeBadgeStyle(grade: string | number | undefined): React.CSSProper
   return { background: "#fee2e2", color: "#b91c1c" };
 }
 
-function getBarWidth(value: string | number | undefined) {
-  const score = getScoreNumber(value);
-  return `${Math.max(0, Math.min(100, score))}%`;
-}
-
 async function safeJson(res: Response) {
   const text = await res.text();
   if (!text || !text.trim()) {
@@ -671,14 +671,6 @@ async function safeJson(res: Response) {
   } catch {
     return { ok: false, error: `JSON이 아닌 응답입니다: ${text}` };
   }
-}
-
-function csvEscape(value: unknown) {
-  const str = String(value ?? "");
-  if (str.includes('"') || str.includes(",") || str.includes("\n")) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
 }
 
 function debugLogLoginFailure(reason: "id mismatch" | "password mismatch" | "inactive", account: Account) {
@@ -980,9 +972,11 @@ function buildPortalScopeKey(account: Account | null) {
 }
 
 export default function Home() {
+  const searchParams = useSearchParams();
   const sharedPortalState = usePortalSharedStore();
   const initRef = useRef(false);
   const portalLoadRef = useRef("");
+  const latestAccountsRef = useRef<Account[]>([]);
   const [rawStudents, setRawStudents] = useState<Student[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -1000,6 +994,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailPopupOpen, setIsDetailPopupOpen] = useState(false);
+  const [detailStudentId, setDetailStudentId] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<ModalMode>("add");
   const [saving, setSaving] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
@@ -1009,6 +1004,7 @@ export default function Home() {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const activeDashboardView: DashboardView = searchParams.get("view") === "branch-analysis" ? "branch-analysis" : "student-management";
 
   useEffect(() => {
     if (!feedback) {
@@ -1018,6 +1014,19 @@ export default function Home() {
     const timer = setTimeout(() => setFeedback(null), 4000);
     return () => clearTimeout(timer);
   }, [feedback]);
+
+  useEffect(() => {
+    if (activeDashboardView !== "student-management" && isDetailPopupOpen) {
+      setIsDetailPopupOpen(false);
+      setDetailStudentId(null);
+    }
+  }, [activeDashboardView, isDetailPopupOpen]);
+
+  useEffect(() => {
+    if (!isDetailPopupOpen && detailStudentId) {
+      setDetailStudentId(null);
+    }
+  }, [detailStudentId, isDetailPopupOpen]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput), 200);
@@ -1045,6 +1054,10 @@ export default function Home() {
     sharedPortalState.physicalTests,
     sharedPortalState.students,
   ]);
+
+  useEffect(() => {
+    latestAccountsRef.current = accounts;
+  }, [accounts]);
 
   const students = useMemo(
     () =>
@@ -1552,6 +1565,19 @@ export default function Home() {
     return null;
   }, [isStudentRole, matchedCurrentStudent, scopedStudents, selectedStudent]);
 
+  const detailPopupStudent = useMemo(() => {
+    if (!detailStudentId) {
+      return null;
+    }
+
+    return (
+      filteredStudents.find((student) => matchesStudentSelection(student, detailStudentId)) ||
+      scopedStudents.find((student) => matchesStudentSelection(student, detailStudentId)) ||
+      students.find((student) => matchesStudentSelection(student, detailStudentId)) ||
+      null
+    );
+  }, [detailStudentId, filteredStudents, scopedStudents, students]);
+
   const selectedStudentMockChartData = useMemo<StudentMockChartPoint[]>(() => {
     const targetStudentId = s((isStudentRole ? dashboardStudent : selectedStudent)?.student_id).trim();
 
@@ -1567,6 +1593,16 @@ export default function Home() {
     });
   }, [dashboardStudent, isStudentRole, mockExams, scopedMockScores, selectedStudent]);
 
+  const selectedStudentMockScores = useMemo<MockScore[]>(() => {
+    const targetStudentId = s((isStudentRole ? dashboardStudent : selectedStudent)?.student_id).trim();
+
+    if (!targetStudentId) {
+      return [];
+    }
+
+    return scopedMockScores.filter((score) => s(score.student_id).trim() === targetStudentId);
+  }, [dashboardStudent, isStudentRole, scopedMockScores, selectedStudent]);
+
   const selectedStudentPhysicalChartData = useMemo<StudentPhysicalChartPoint[]>(() => {
     const targetStudentId = s((isStudentRole ? dashboardStudent : selectedStudent)?.student_id).trim();
 
@@ -1581,6 +1617,46 @@ export default function Home() {
       debug: false,
     });
   }, [dashboardStudent, isStudentRole, physicalTests, scopedPhysicalRecords, selectedStudent]);
+
+  const detailStudentMockChartData = useMemo<StudentMockChartPoint[]>(() => {
+    const targetStudentId = s(detailPopupStudent?.student_id).trim();
+
+    if (!targetStudentId) {
+      return [];
+    }
+
+    return getStudentMockChartData({
+      studentId: targetStudentId,
+      mockScores: scopedMockScores,
+      mockExams,
+      debug: false,
+    });
+  }, [detailPopupStudent, mockExams, scopedMockScores]);
+
+  const detailStudentMockScores = useMemo<MockScore[]>(() => {
+    const targetStudentId = s(detailPopupStudent?.student_id).trim();
+
+    if (!targetStudentId) {
+      return [];
+    }
+
+    return scopedMockScores.filter((score) => s(score.student_id).trim() === targetStudentId);
+  }, [detailPopupStudent, scopedMockScores]);
+
+  const detailStudentPhysicalChartData = useMemo<StudentPhysicalChartPoint[]>(() => {
+    const targetStudentId = s(detailPopupStudent?.student_id).trim();
+
+    if (!targetStudentId) {
+      return [];
+    }
+
+    return getStudentPhysicalChartData({
+      studentId: targetStudentId,
+      physicalRecords: scopedPhysicalRecords,
+      physicalTests,
+      debug: false,
+    });
+  }, [detailPopupStudent, physicalTests, scopedPhysicalRecords]);
 
   const summary = useMemo(() => {
     if (dashboardBaseStudents.length === 0) return { count: 0, avgScore: "0.0", topAvg: "0.0", activeCount: 0 };
@@ -1795,6 +1871,7 @@ export default function Home() {
     }
 
     setSelectedStudentId(nextStudentId);
+    setDetailStudentId(nextStudentId);
     void loadStudentDetails(nextStudentId);
     setIsDetailPopupOpen(true);
   }, [loadStudentDetails, selectedStudentId]);
@@ -2017,11 +2094,11 @@ export default function Home() {
       );
 
       if (normalizedSavedAccount) {
-        setAccounts((prev) => {
-          const nextAccounts = upsertAccountRecord(prev, normalizedSavedAccount);
-          syncPortalSharedLightData({ accounts: nextAccounts });
-          return nextAccounts;
-        });
+        const nextAccounts = upsertAccountRecord(latestAccountsRef.current, normalizedSavedAccount);
+
+        latestAccountsRef.current = nextAccounts;
+        setAccounts(nextAccounts);
+        syncPortalSharedLightData({ accounts: nextAccounts });
 
         if (currentAccount) {
           const normalizedCurrentAccount = normalizeAccountRecord(currentAccount);
@@ -2227,172 +2304,89 @@ export default function Home() {
     }
   };
 
-  const downloadCsv = (rows: Student[], filename: string) => {
-    const headers = [
-      "student_id",
-      "student_no",
-      "name",
-      "branch_name",
-      "school_name",
-      "grade",
-      "class_name",
-      "phone",
-      "parent_phone",
-      "status",
-      "korean_name",
-      "korean_raw",
-      "korean_std",
-      "korean_pct",
-      "korean_grade",
-      "math_name",
-      "math_raw",
-      "math_std",
-      "math_pct",
-      "math_grade",
-      "english_raw",
-      "english_grade",
-      "inquiry1_name",
-      "inquiry1_raw",
-      "inquiry1_std",
-      "inquiry1_pct",
-      "inquiry1_grade",
-      "inquiry2_name",
-      "inquiry2_raw",
-      "inquiry2_std",
-      "inquiry2_pct",
-      "inquiry2_grade",
-      "history_raw",
-      "history_grade",
-      "average",
-    ];
-
-    const lines = [
-      headers.join(","),
-      ...rows.map((st) =>
-        [
-          st.student_id,
-          st.student_no,
-          st.name,
-          getBranchLabel(s(st.branch_id)),
-          st.school_name,
-          st.grade,
-          st.class_name,
-          st.phone,
-          st.parent_phone,
-          st.status,
-          st.korean_name,
-          st.korean_raw,
-          st.korean_std,
-          st.korean_pct,
-          st.korean_grade,
-          st.math_name,
-          st.math_raw,
-          st.math_std,
-          st.math_pct,
-          st.math_grade,
-          st.english_raw,
-          st.english_grade,
-          st.inquiry1_name,
-          st.inquiry1_raw,
-          st.inquiry1_std,
-          st.inquiry1_pct,
-          st.inquiry1_grade,
-          st.inquiry2_name,
-          st.inquiry2_raw,
-          st.inquiry2_std,
-          st.inquiry2_pct,
-          st.inquiry2_grade,
-          st.history_raw,
-          st.history_grade,
-          getAverageNumber(st).toFixed(1),
-        ]
-          .map(csvEscape)
-          .join(",")
-      ),
-    ];
-
-    const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportAllCsv = () => {
-    downloadCsv(filteredStudents, "students_filtered.csv");
-  };
-
-  const handleExportBranchCsv = () => {
-    const filename =
-      branchFilter === "ALL"
-        ? "students_all_branches.csv"
-        : `students_${getBranchLabel(branchFilter)}.csv`;
-    downloadCsv(filteredStudents, filename);
-  };
-
   const handlePrint = () => {
     window.print();
   };
 
-  const handlePrintSelected = () => {
-    if (!selectedStudent) {
+  const handlePrintSelected = useCallback(() => {
+    const printTargetStudent = detailPopupStudent || selectedStudent;
+    const printMockScores = detailPopupStudent ? detailStudentMockScores : selectedStudentMockScores;
+    const printMockChartData = detailPopupStudent ? detailStudentMockChartData : selectedStudentMockChartData;
+    const printPhysicalChartData = detailPopupStudent ? detailStudentPhysicalChartData : selectedStudentPhysicalChartData;
+
+    if (!printTargetStudent) {
       alert("학생을 먼저 선택하세요.");
       return;
     }
-    const printWindow = window.open("", "_blank", "width=900,height=1000");
-    if (!printWindow) return;
 
-    const html = `
-      <html>
-        <head>
-          <title>${s(selectedStudent.name)} 학생 출력</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
-            h1 { margin-bottom: 8px; }
-            h2 { margin-top: 28px; margin-bottom: 12px; }
-            .box { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
-            .row { display:flex; justify-content:space-between; gap:16px; padding:6px 0; border-bottom:1px solid #f3f4f6; }
-            .row:last-child { border-bottom:none; }
-          </style>
-        </head>
-        <body>
-          <h1>${s(selectedStudent.name)}</h1>
-          <div>${s(selectedStudent.school_name)} / ${s(selectedStudent.grade)}학년 / ${getBranchLabel(s(selectedStudent.branch_id))}</div>
+    const printWindow = window.open("", "_blank", "width=1280,height=960");
 
-          <h2>기본 정보</h2>
-          <div class="box">
-            <div class="row"><span>학번</span><span>${s(selectedStudent.student_no)}</span></div>
-            <div class="row"><span>성별</span><span>${s(selectedStudent.gender)}</span></div>
-            <div class="row"><span>생년월일</span><span>${s(selectedStudent.birth_date)}</span></div>
-            <div class="row"><span>연락처</span><span>${s(selectedStudent.phone)}</span></div>
-            <div class="row"><span>학부모연락처</span><span>${s(selectedStudent.parent_phone)}</span></div>
-            <div class="row"><span>상태</span><span>${s(selectedStudent.status)}</span></div>
-            <div class="row"><span>평균</span><span>${getAverageNumber(selectedStudent).toFixed(1)}</span></div>
-          </div>
+    if (!printWindow) {
+      alert("팝업이 차단되어 인쇄 창을 열지 못했습니다.");
+      return;
+    }
 
-          <h2>성적</h2>
-          <div class="box">
-            <div class="row"><span>국어</span><span>${s(selectedStudent.korean_raw)} / ${s(selectedStudent.korean_grade)}등급</span></div>
-            <div class="row"><span>수학</span><span>${s(selectedStudent.math_raw)} / ${s(selectedStudent.math_grade)}등급</span></div>
-            <div class="row"><span>영어</span><span>${s(selectedStudent.english_raw)} / ${s(selectedStudent.english_grade)}등급</span></div>
-            <div class="row"><span>탐구1</span><span>${s(selectedStudent.inquiry1_raw)} / ${s(selectedStudent.inquiry1_grade)}등급</span></div>
-            <div class="row"><span>탐구2</span><span>${s(selectedStudent.inquiry2_raw)} / ${s(selectedStudent.inquiry2_grade)}등급</span></div>
-            <div class="row"><span>한국사</span><span>${s(selectedStudent.history_raw)} / ${s(selectedStudent.history_grade)}등급</span></div>
-          </div>
-
-          <h2>메모</h2>
-          <div class="box">${s(selectedStudent.memo) || "-"}</div>
-        </body>
-      </html>
-    `;
-    printWindow.document.open();
-    printWindow.document.write(html);
+    printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${s(printTargetStudent.name)} 학생 상세 출력</title></head><body><div id="print-root"></div></body></html>`);
     printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-  };
+
+    const container = printWindow.document.getElementById("print-root");
+
+    if (!container) {
+      printWindow.close();
+      return;
+    }
+
+    const root = createRoot(container);
+
+    const cleanup = () => {
+      try {
+        root.unmount();
+      } catch {
+        // no-op
+      }
+    };
+
+    const handleAfterPrint = () => {
+      cleanup();
+      printWindow.removeEventListener("afterprint", handleAfterPrint);
+      printWindow.close();
+    };
+
+    printWindow.addEventListener("afterprint", handleAfterPrint);
+    printWindow.addEventListener("beforeunload", cleanup);
+
+    root.render(
+      <PrintStudentDetail
+        student={printTargetStudent}
+        mockScores={printMockScores}
+        mockExams={mockExams}
+        mockChartData={printMockChartData}
+        physicalChartData={printPhysicalChartData}
+        getAverageNumber={getAverageNumber}
+        getGradeBadgeStyle={getGradeBadgeStyle}
+        getBranchLabel={getBranchLabel}
+        s={s}
+        onReady={() => {
+          printWindow.focus();
+          printWindow.print();
+        }}
+      />
+    );
+  }, [
+    detailPopupStudent,
+    detailStudentMockChartData,
+    detailStudentMockScores,
+    detailStudentPhysicalChartData,
+    getAverageNumber,
+    getBranchLabel,
+    getGradeBadgeStyle,
+    mockExams,
+    s,
+    selectedStudent,
+    selectedStudentMockChartData,
+    selectedStudentMockScores,
+    selectedStudentPhysicalChartData,
+  ]);
 
   if (loading) {
     return (
@@ -2465,41 +2459,55 @@ export default function Home() {
     : isBranchManager
     ? "지점 관리자"
     : "관리자";
-  const dashboardBadge = isStudentRole ? "FINAL 학생 포털" : "FINAL 관리자 시스템";
+  const dashboardBadge = isStudentRole
+    ? "FINAL 학생 포털"
+    : activeDashboardView === "branch-analysis"
+    ? "메인 / 지점별 비교 분석"
+    : "메인 / 지점 학생 관리";
   const dashboardTitle = isStudentRole
     ? "내 성적 대시보드"
-    : isBranchManager
-    ? "지점 학생 대시보드"
-    : "학생 성적 대시보드";
+    : activeDashboardView === "branch-analysis"
+    ? "지점별 비교 분석"
+    : "지점 학생 관리";
   const dashboardSubtitle = isStudentRole
     ? "본인 성적과 실기 기록만 조회할 수 있습니다."
-    : isBranchManager
-    ? "내 지점 학생, 성적, 실기 기록만 조회하고 관리합니다."
-    : "지점, 학생정보, 성적, 평균, 통계를 한 화면에서 관리합니다.";
+    : activeDashboardView === "branch-analysis"
+    ? "지점별 TOP 분석, 평균 비교 차트, 요약 카드만 별도 화면으로 분리했습니다."
+    : "학생 목록과 필터 중심으로 관리하고, 학생 상세는 학생별 상세보기에서 크게 엽니다.";
 
   return (
     <main style={styles.page}>
       <div style={styles.container}>
-        <header style={styles.header}>
-          <div style={styles.brandWrap}>
-            <div style={styles.brandMark}>FINAL</div>
-            <div style={styles.brandTextWrap}>
-              <span style={styles.brandSub}>SPORTS ACADEMY</span>
+        {isStudentRole ? (
+          <header style={styles.header}>
+            <div style={styles.brandWrap}>
+              <div style={styles.brandMark}>FINAL</div>
+              <div style={styles.brandTextWrap}>
+                <span style={styles.brandSub}>SPORTS ACADEMY</span>
+              </div>
             </div>
-          </div>
-          <div style={styles.headerActions}>
-            <span style={styles.userName}>{s(currentAccount.name) || s(currentAccount.login_id)}</span>
-            <span style={styles.headerPillMuted}>{roleTitle}</span>
-            {isSuperAdmin ? (
-              <a href="/branches" style={styles.navLink}>
-                지점 관리
-              </a>
-            ) : null}
-            <button style={styles.secondaryButton} onClick={handleLogout}>
-              로그아웃
-            </button>
-          </div>
-        </header>
+            <div style={styles.headerActions}>
+              <span style={styles.userName}>{s(currentAccount.name) || s(currentAccount.login_id)}</span>
+              <span style={styles.headerPillMuted}>{roleTitle}</span>
+              <button style={styles.secondaryButton} onClick={handleLogout}>
+                로그아웃
+              </button>
+            </div>
+          </header>
+        ) : (
+          <AdminHeader
+            isSuperAdmin={isSuperAdmin}
+            actions={
+              <>
+                <span style={styles.userName}>{s(currentAccount.name) || s(currentAccount.login_id)}</span>
+                <span style={styles.headerPillMuted}>{roleTitle}</span>
+                <button style={styles.secondaryButton} onClick={handleLogout}>
+                  로그아웃
+                </button>
+              </>
+            }
+          />
+        )}
 
         <section style={styles.heroIntro}>
           <div style={styles.heroIntroInner}>
@@ -2509,16 +2517,6 @@ export default function Home() {
               <div style={styles.introAccentLine} />
               <p style={styles.subtitle}>{dashboardSubtitle}</p>
             </div>
-            {!isStudentRole ? (
-              <div style={styles.heroIntroActions}>
-                <Link href="/susi-data" style={styles.heroIntroButtonSecondary}>
-                  수시DATA
-                </Link>
-                <Link href="/jeongsi-data" style={styles.heroIntroButtonPrimary}>
-                  정시DATA
-                </Link>
-              </div>
-            ) : null}
           </div>
         </section>
 
@@ -2527,6 +2525,8 @@ export default function Home() {
             feedback={feedback}
             loading={loading}
             student={dashboardStudent}
+            mockScores={selectedStudentMockScores}
+            mockExams={mockExams}
             mockChartData={selectedStudentMockChartData}
             physicalChartData={selectedStudentPhysicalChartData}
             getAverageNumber={getAverageNumber}
@@ -2538,16 +2538,15 @@ export default function Home() {
           <AdminDashboard
             feedback={feedback}
             loading={loading}
+            activeView={activeDashboardView}
             selectedStudent={selectedStudent}
             selectedStudentId={selectedStudentId}
-            selectedStudentMockChartData={selectedStudentMockChartData}
-            selectedStudentPhysicalChartData={selectedStudentPhysicalChartData}
+            mockExams={mockExams}
             filteredStudents={filteredStudents}
             scopedBranches={scopedBranches}
             scopedStudents={scopedStudents}
             scopedMockScores={scopedMockScores}
             scopedPhysicalRecords={scopedPhysicalRecords}
-            mockExams={mockExams}
             physicalTests={physicalTests}
             branchOptions={branchOptions}
             branchFilter={branchFilter}
@@ -2564,44 +2563,43 @@ export default function Home() {
             onBranchFilterChange={setBranchFilter}
             onLoginFilterChange={setLoginFilter}
             onStudentStatusFilterChange={setStudentStatusFilter}
-            onSortTypeChange={(value) => setSortType(value as SortType)}
+            onSortTypeChange={(value: string) => setSortType(value as SortType)}
             onSelectStudent={handleSelectStudent}
             onOpenDetail={handleOpenDetail}
             onMoveSelection={moveSelection}
-            onExportAllCsv={handleExportAllCsv}
-            onExportBranchCsv={handleExportBranchCsv}
             onPrint={handlePrint}
-            onPrintSelected={handlePrintSelected}
-            onEdit={openEditModal}
-            onDelete={handleDelete}
             onAdd={openAddModal}
             getAverageNumber={getAverageNumber}
             getStudentLoginStatus={getStudentLoginStatus}
             getStatusStyle={getStatusStyle}
-            getGradeBadgeStyle={getGradeBadgeStyle}
             getBranchLabel={getBranchLabel}
-            getScoreNumber={getScoreNumber}
-            getBarWidth={getBarWidth}
             s={s}
           />
         )}
       </div>
 
-      {isDetailPopupOpen && selectedStudent && (
+      {isDetailPopupOpen && detailPopupStudent && (
         <div style={styles.modalOverlay}>
           <div style={styles.detailPopupBox}>
             <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>학생 상세 보기</h3>
-              <button style={styles.closeButton} onClick={() => setIsDetailPopupOpen(false)}>✕</button>
+              <h3 style={styles.modalTitle}>{`${s(detailPopupStudent.name)} 학생 상세`}</h3>
+              <button style={styles.closeButton} onClick={() => {
+                setIsDetailPopupOpen(false);
+                setDetailStudentId(null);
+              }}>✕</button>
             </div>
             <StudentDetailPanel
-              student={selectedStudent}
-              mockChartData={selectedStudentMockChartData}
-              physicalChartData={selectedStudentPhysicalChartData}
+              student={detailPopupStudent}
+              mockScores={detailStudentMockScores}
+              mockExams={mockExams}
+              mockChartData={detailStudentMockChartData}
+              physicalChartData={detailStudentPhysicalChartData}
               canManage={canManageStudents}
               sticky={false}
+              showActions={false}
               onEdit={() => {
                 setIsDetailPopupOpen(false);
+                setDetailStudentId(null);
                 void openEditModal();
               }}
               onDelete={handleDelete}
@@ -2612,11 +2610,31 @@ export default function Home() {
               s={s}
             />
             <div style={styles.modalFooter}>
-              <button style={styles.secondaryButton} onClick={() => setIsDetailPopupOpen(false)}>
-                닫기
-              </button>
+              {canManageStudents ? (
+                <button
+                  style={styles.secondaryButton}
+                  onClick={() => {
+                    setIsDetailPopupOpen(false);
+                    setDetailStudentId(null);
+                    void openEditModal();
+                  }}
+                >
+                  수정
+                </button>
+              ) : null}
+              {canManageStudents ? (
+                <button style={styles.warningButton} onClick={handleDelete}>
+                  삭제
+                </button>
+              ) : null}
               <button style={styles.navButton} onClick={handlePrintSelected}>
                 학생 인쇄
+              </button>
+              <button style={styles.secondaryButton} onClick={() => {
+                setIsDetailPopupOpen(false);
+                setDetailStudentId(null);
+              }}>
+                닫기
               </button>
             </div>
           </div>
@@ -2648,11 +2666,11 @@ const styles: { [key: string]: React.CSSProperties } = {
   page: {
     minHeight: "100vh",
     background: portalTheme.gradients.page,
-    padding: "0 20px 40px",
+    padding: portalLayout.pagePadding,
     fontFamily: "Arial, sans-serif",
   },
   container: {
-    maxWidth: "1440px",
+    maxWidth: portalLayout.containerMaxWidth,
     margin: "0 auto",
   },
   studentViewWrap: {
@@ -2836,14 +2854,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     maxWidth: "780px",
     flex: "1 1 560px",
   },
-  heroIntroActions: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    paddingBottom: "6px",
-  },
   introAccentLine: {
     width: "88px",
     height: "3px",
@@ -2852,7 +2862,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   title: {
     margin: 0,
-    fontSize: "clamp(35px, 6vw, 48px)",
+    fontSize: "clamp(42px, 7vw, 62px)",
     fontWeight: 900,
     color: portalTheme.colors.textStrong,
     letterSpacing: "-0.05em",
@@ -2866,38 +2876,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: 1.68,
     fontWeight: 500,
     maxWidth: "720px",
-  },
-  heroIntroButtonPrimary: {
-    ...portalButtonStyles.secondary,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: "122px",
-    padding: "12px 17px",
-    borderRadius: "13px",
-    fontSize: "13px",
-    textDecoration: "none",
-    fontWeight: 800,
-    color: "#eff6ff",
-    background: "linear-gradient(135deg, #204d86 0%, #173763 100%)",
-    border: "1px solid rgba(23, 55, 99, 0.2)",
-    boxShadow: "0 8px 18px rgba(23, 55, 99, 0.14)",
-  },
-  heroIntroButtonSecondary: {
-    ...portalButtonStyles.secondary,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: "122px",
-    padding: "12px 17px",
-    borderRadius: "13px",
-    fontSize: "13px",
-    fontWeight: 800,
-    textDecoration: "none",
-    color: "#173763",
-    background: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(243,247,252,0.98) 100%)",
-    border: "1px solid rgba(23, 55, 99, 0.12)",
-    boxShadow: "0 8px 18px rgba(15, 23, 42, 0.08)",
   },
   loginCard: {
     maxWidth: 448,
@@ -3316,14 +3294,13 @@ const styles: { [key: string]: React.CSSProperties } = {
     top: "20px",
   },
   detailPopupBox: {
-    width: "100%",
-    maxWidth: "860px",
+    width: "min(90vw, 1400px)",
     background: portalTheme.gradients.card,
     borderRadius: "20px",
-    padding: "24px",
+    padding: "28px",
     boxShadow: portalTheme.shadows.modal,
     border: `1px solid ${portalTheme.colors.line}`,
-    maxHeight: "90vh",
+    height: "90vh",
     overflowY: "auto",
   },
   selectedBadge: {
@@ -3445,7 +3422,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1000,
-    padding: "20px",
+    padding: "16px",
   },
   modalBox: {
     width: "100%",
@@ -3528,6 +3505,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "10px",
     marginTop: "24px",
     flexWrap: "wrap",
+    paddingTop: "18px",
+    borderTop: `1px solid ${portalTheme.colors.line}`,
   },
   secondaryButton: {
     ...portalButtonStyles.secondary,
@@ -3542,6 +3521,13 @@ const styles: { [key: string]: React.CSSProperties } = {
     filter: "none",
     backdropFilter: "none",
     opacity: 1,
+  },
+  warningButton: {
+    ...portalButtonStyles.warning,
+    padding: "9px 14px",
+    fontSize: "12px",
+    cursor: "pointer",
+    borderRadius: "10px",
   },
   primaryButton: {
     ...portalButtonStyles.primary,

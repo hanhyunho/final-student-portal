@@ -15,6 +15,7 @@ interface StudentTableProps {
   loading: boolean;
   onSelectStudent: (id: string) => void;
   onDoubleClick: (id: string) => void;
+  onOpenDetail: (id: string) => void;
   getBranchLabel: (branchId: string | undefined) => string;
   getStudentLoginStatus: (student: Student) => string;
   getStatusStyle: (status: string | undefined) => React.CSSProperties;
@@ -28,6 +29,7 @@ function StudentTableComponent({
   loading,
   onSelectStudent,
   onDoubleClick,
+  onOpenDetail,
   getBranchLabel,
   getStudentLoginStatus,
   getStatusStyle,
@@ -47,8 +49,8 @@ function StudentTableComponent({
       minWidth: "100%",
       borderCollapse: "collapse",
     },
-    th: {
-      padding: "7px 12px",
+    thLeft: {
+      padding: "11px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineStrong}`,
       background: "#f7fafc",
       textAlign: "left",
@@ -57,47 +59,55 @@ function StudentTableComponent({
       whiteSpace: "nowrap",
       fontWeight: 800,
       letterSpacing: "0.01em",
+      verticalAlign: "middle",
+    },
+    thCenter: {
+      padding: "11px 12px",
+      borderBottom: `1px solid ${portalTheme.colors.lineStrong}`,
+      background: "#f7fafc",
+      textAlign: "center",
+      fontSize: "13px",
+      color: portalTheme.colors.textPrimary,
+      whiteSpace: "nowrap",
+      fontWeight: 800,
+      letterSpacing: "0.01em",
+      verticalAlign: "middle",
     },
     thExtension: {
-      padding: "7px 12px 7px 10px",
-      borderBottom: `1px solid ${portalTheme.colors.lineStrong}`,
-      background: "#f7fafc",
       width: "224px",
       minWidth: "224px",
-      textAlign: "left",
-      fontSize: "13px",
-      color: portalTheme.colors.textPrimary,
-      whiteSpace: "nowrap",
-      fontWeight: 800,
-      letterSpacing: "0.01em",
     },
     thConsult: {
-      padding: "7px 12px 7px 10px",
-      borderBottom: `1px solid ${portalTheme.colors.lineStrong}`,
-      background: "#f7fafc",
       width: "284px",
       minWidth: "284px",
-      textAlign: "left",
-      fontSize: "13px",
-      color: portalTheme.colors.textPrimary,
-      whiteSpace: "nowrap",
-      fontWeight: 800,
-      letterSpacing: "0.01em",
     },
-    td: {
-      padding: "9px 12px",
+    tdLeft: {
+      padding: "13px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
       fontSize: "13px",
       color: portalTheme.colors.textPrimary,
       whiteSpace: "nowrap",
+      textAlign: "left",
+      verticalAlign: "middle",
     },
     tdStrong: {
-      padding: "9px 12px",
+      padding: "13px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
       fontSize: "13px",
       fontWeight: 800,
       color: portalTheme.colors.textStrong,
       whiteSpace: "nowrap",
+      textAlign: "left",
+      verticalAlign: "middle",
+    },
+    tdCenter: {
+      padding: "13px 12px",
+      borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
+      fontSize: "13px",
+      color: portalTheme.colors.textPrimary,
+      whiteSpace: "nowrap",
+      textAlign: "center",
+      verticalAlign: "middle",
     },
     row: {
       cursor: "pointer",
@@ -110,13 +120,34 @@ function StudentTableComponent({
     phoneText: {
       color: portalTheme.colors.textMuted,
       fontVariantNumeric: "tabular-nums",
+      display: "inline-block",
+      width: "100%",
+      textAlign: "left",
+    },
+    detailButton: {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      border: `1px solid ${portalTheme.colors.primaryTint}`,
+      borderRadius: portalTheme.radius.pill,
+      background: portalTheme.colors.primarySoft,
+      color: portalTheme.colors.primaryStrong,
+      fontSize: "12px",
+      fontWeight: 800,
+      minHeight: "34px",
+      padding: "7px 12px",
+      cursor: "pointer",
+      whiteSpace: "nowrap",
+      flexShrink: 0,
     },
     statusCell: {
-      padding: "9px 12px",
+      padding: "13px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
       whiteSpace: "nowrap",
       width: "108px",
       minWidth: "108px",
+      textAlign: "center",
+      verticalAlign: "middle",
     },
     loginBadge: {
       display: "inline-flex",
@@ -142,18 +173,36 @@ function StudentTableComponent({
       border: "1px solid rgba(180, 192, 208, 0.24)",
     },
     tdExtension: {
-      padding: "9px 12px 9px 8px",
+      padding: "13px 12px 13px 8px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
       width: "224px",
       minWidth: "224px",
       whiteSpace: "nowrap",
+      textAlign: "center",
+      verticalAlign: "middle",
     },
     tdConsult: {
-      padding: "9px 12px 9px 8px",
+      padding: "13px 12px 13px 8px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
       width: "284px",
       minWidth: "284px",
       whiteSpace: "nowrap",
+      textAlign: "center",
+      verticalAlign: "middle",
+    },
+    shortcutCell: {
+      padding: "13px 12px",
+      borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
+      width: "112px",
+      minWidth: "112px",
+      textAlign: "center",
+      verticalAlign: "middle",
+    },
+    panelCellInner: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      width: "100%",
     },
   };
 
@@ -220,10 +269,28 @@ function StudentTableComponent({
         style={{ ...styles.row, ...(isSelected ? styles.selectedRow : {}) }}
       >
         <td style={styles.tdStrong}>{s(st.name)}</td>
-        <td style={styles.td}>{getBranchLabel(s(st.branch_id))}</td>
-        <td style={styles.td}>{s(st.school_name)}</td>
-        <td style={styles.td}>{s(st.grade)}</td>
-        <td style={{ ...styles.td, ...styles.phoneText }}>{s((st as Student & { phone?: string }).phone) || "-"}</td>
+        <td style={styles.tdLeft}>{getBranchLabel(s(st.branch_id))}</td>
+        <td style={styles.tdLeft}>{s(st.school_name)}</td>
+        <td style={styles.tdCenter}>{s(st.grade)}</td>
+        <td style={styles.tdLeft}>
+          <span style={styles.phoneText}>{s((st as Student & { phone?: string }).phone) || "-"}</span>
+        </td>
+        <td style={styles.shortcutCell}>
+          <button
+            type="button"
+            style={styles.detailButton}
+            onClick={(event) => {
+              event.stopPropagation();
+
+              if (selectionId) {
+                onOpenDetail(selectionId);
+              }
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+          >
+            상세보기
+          </button>
+        </td>
         <td style={styles.statusCell}>
           <span style={loginBadgeStyle}>{loginStatus}</span>
         </td>
@@ -231,10 +298,14 @@ function StudentTableComponent({
           <span style={statusBadgeStyle}>{normalizedStudentStatus}</span>
         </td>
         <td style={styles.tdExtension}>
-          <StudentRowStatusPanel tabs={["3모", "6모", "9모", "수능"]} tint="blue" initialValue="3모" />
+          <div style={styles.panelCellInner}>
+            <StudentRowStatusPanel tabs={["3모", "6모", "9모", "수능"]} tint="blue" initialValue="3모" />
+          </div>
         </td>
         <td style={styles.tdConsult}>
-          <StudentRowStatusPanel tabs={["기본", "3모", "6모", "9모", "수능"]} tint="green" initialValue="기본" />
+          <div style={styles.panelCellInner}>
+            <StudentRowStatusPanel tabs={["기본", "3모", "6모", "9모", "수능"]} tint="green" initialValue="기본" />
+          </div>
         </td>
       </tr>
     );
@@ -250,15 +321,16 @@ function StudentTableComponent({
         <table style={styles.table}>
           <thead>
             <tr>
-              <th style={styles.th}>이름</th>
-              <th style={styles.th}>지점</th>
-              <th style={styles.th}>학교</th>
-              <th style={styles.th}>학년</th>
-              <th style={styles.th}>핸드폰번호</th>
-              <th style={styles.th}>로그인여부</th>
-              <th style={styles.th}>상태</th>
-              <th style={styles.thExtension}>성적</th>
-              <th style={styles.thConsult}>상담</th>
+              <th style={styles.thLeft}>이름</th>
+              <th style={styles.thLeft}>지점</th>
+              <th style={styles.thLeft}>학교</th>
+              <th style={styles.thCenter}>학년</th>
+              <th style={styles.thLeft}>핸드폰번호</th>
+              <th style={styles.thCenter}>바로가기</th>
+              <th style={styles.thCenter}>로그인여부</th>
+              <th style={styles.thCenter}>상태</th>
+              <th style={{ ...styles.thCenter, ...styles.thExtension }}>성적</th>
+              <th style={{ ...styles.thCenter, ...styles.thConsult }}>상담</th>
             </tr>
           </thead>
           <tbody>{studentRows}</tbody>

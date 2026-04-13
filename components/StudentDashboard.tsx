@@ -1,8 +1,8 @@
 import React from "react";
-import type { Student, StudentMockChartPoint, StudentPhysicalChartPoint } from "@/lib/dataService";
+import type { MockExam, MockScore, Student, StudentMockChartPoint, StudentPhysicalChartPoint } from "@/lib/dataService";
 import { EmptyState } from "@/components/EmptyState";
 import { StudentDetailPanel } from "@/components/StudentDetailPanel";
-import { getFeedbackPalette, portalTheme } from "@/lib/theme";
+import { getFeedbackPalette, portalLayout, portalTheme } from "@/lib/theme";
 
 type FeedbackMessage = {
   type: "success" | "error" | "info";
@@ -13,6 +13,8 @@ interface StudentDashboardProps {
   feedback: FeedbackMessage | null;
   loading: boolean;
   student: Student | null;
+  mockScores: MockScore[];
+  mockExams: MockExam[];
   mockChartData: StudentMockChartPoint[];
   physicalChartData: StudentPhysicalChartPoint[];
   getAverageNumber: (student: Student) => number;
@@ -25,6 +27,8 @@ export function StudentDashboard({
   feedback,
   loading,
   student,
+  mockScores,
+  mockExams,
   mockChartData,
   physicalChartData,
   getAverageNumber,
@@ -43,7 +47,7 @@ export function StudentDashboard({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", maxWidth: "1120px", margin: "0 auto" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: portalLayout.sectionGap, maxWidth: portalLayout.containerMaxWidth, margin: "0 auto" }}>
       {feedback ? (
         <div
           style={{
@@ -69,6 +73,8 @@ export function StudentDashboard({
         </div>
         <StudentDetailPanel
           student={student}
+          mockScores={mockScores}
+          mockExams={mockExams}
           mockChartData={mockChartData}
           physicalChartData={physicalChartData}
           canManage={false}

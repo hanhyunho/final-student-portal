@@ -1,6 +1,6 @@
-import Link from "next/link";
 import React from "react";
-import { portalButtonStyles, portalTheme } from "@/lib/theme";
+import { AdminHeader } from "@/components/AdminHeader";
+import { portalTheme } from "@/lib/theme";
 
 type FilterConfig = {
   label: string;
@@ -48,19 +48,16 @@ export function DataBrowserPage({ title, subtitle, filters, columns, rows, accen
       }}
     >
       <div style={{ maxWidth: "1480px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "18px" }}>
+        <AdminHeader />
+
         <section
           style={{
             background: portalTheme.gradients.card,
             border: `1px solid ${portalTheme.colors.line}`,
             borderLeft: `5px solid ${accentStyle.border}`,
             borderRadius: portalTheme.radius.lg,
-            padding: "24px 24px 22px",
+            padding: "28px 26px 24px",
             boxShadow: portalTheme.shadows.panel,
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "16px",
-            flexWrap: "wrap",
-            alignItems: "flex-end",
           }}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxWidth: "760px" }}>
@@ -82,17 +79,11 @@ export function DataBrowserPage({ title, subtitle, filters, columns, rows, accen
               DATA Browser
             </span>
             <div>
-              <h1 style={{ margin: 0, fontSize: "clamp(30px, 5vw, 40px)", fontWeight: 900, color: portalTheme.colors.textStrong, letterSpacing: "-0.04em" }}>
+              <h1 style={{ margin: 0, fontSize: "clamp(40px, 6vw, 56px)", fontWeight: 900, lineHeight: 1.04, color: portalTheme.colors.textStrong, letterSpacing: "-0.05em" }}>
                 {title}
               </h1>
-              <p style={{ margin: "8px 0 0 0", fontSize: "15px", lineHeight: 1.65, color: portalTheme.colors.textMuted }}>{subtitle}</p>
+              <p style={{ margin: "12px 0 0 0", fontSize: "16px", lineHeight: 1.7, color: portalTheme.colors.textMuted }}>{subtitle}</p>
             </div>
-          </div>
-
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <Link href="/" style={{ ...portalButtonStyles.secondary, display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none", padding: "11px 15px", boxShadow: "none" }}>
-              대시보드로 돌아가기
-            </Link>
           </div>
         </section>
 

@@ -195,6 +195,7 @@ export type StudentPhysicalChartPoint = {
   short_label: string;
   test_name: string;
   test_date: string;
+  rank_no: string;
   total_score: number;
   back_strength: number;
   run_10m: number;
@@ -417,6 +418,7 @@ export function getStudentPhysicalChartData({
         short_label: buildCompactMonthLabel(testDate),
         test_name: s(test?.test_name),
         test_date: testDate,
+        rank_no: s(record.rank_no),
         total_score: getNumericValue(record.total_score),
         back_strength: getNumericValue(record.back_strength_score),
         run_10m: getNumericValue(record.run_10m_score),

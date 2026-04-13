@@ -66,12 +66,77 @@ let portalLightDataPromise: Promise<PortalLightData> | null = null;
 const detailsPromises = new Map<string, Promise<PortalStudentDetails>>();
 
 const listeners = new Set<() => void>();
+let changeNotificationScheduled = false;
+
+function scheduleMicrotask(callback: () => void) {
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(callback);
+    return;
+  }
+
+  Promise.resolve().then(callback);
+}
+
+function areAccountsEqual(left: Account | null, right: Account | null) {
+  const normalizedLeft = normalizeAccountRecord(left);
+  const normalizedRight = normalizeAccountRecord(right);
+
+  if (!normalizedLeft || !normalizedRight) {
+    return normalizedLeft === normalizedRight;
+  }
+
+  return (
+    normalizedLeft.account_id === normalizedRight.account_id &&
+    normalizedLeft.login_id === normalizedRight.login_id &&
+    normalizedLeft.role === normalizedRight.role &&
+    normalizedLeft.student_id === normalizedRight.student_id &&
+    normalizedLeft.branch_id === normalizedRight.branch_id &&
+    normalizedLeft.name === normalizedRight.name &&
+    normalizedLeft.is_active === normalizedRight.is_active
+  );
+}
+
+function hasPortalSharedStateChanges(nextState: Partial<PortalSharedState>) {
+  const nextKeys = Object.keys(nextState) as Array<keyof PortalSharedState>;
+
+  for (const key of nextKeys) {
+    const nextValue = nextState[key];
+    const currentValue = portalSharedState[key];
+
+    if (key === "currentAccount") {
+      if (!areAccountsEqual(currentValue as Account | null, nextValue as Account | null)) {
+        return true;
+      }
+
+      continue;
+    }
+
+    if (!Object.is(currentValue, nextValue)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 function emitChange() {
-  listeners.forEach((listener) => listener());
+  if (changeNotificationScheduled) {
+    return;
+  }
+
+  changeNotificationScheduled = true;
+
+  scheduleMicrotask(() => {
+    changeNotificationScheduled = false;
+    Array.from(listeners).forEach((listener) => listener());
+  });
 }
 
 function setPortalSharedState(nextState: Partial<PortalSharedState>, touchHydratedAt = true) {
+  if (!hasPortalSharedStateChanges(nextState)) {
+    return;
+  }
+
   portalSharedState = {
     ...portalSharedState,
     ...nextState,

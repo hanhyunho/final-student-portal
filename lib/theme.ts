@@ -105,6 +105,14 @@ export const portalTheme = {
   ],
 } as const;
 
+export const portalLayout = {
+  containerMaxWidth: "1440px",
+  pagePadding: "0 20px 40px",
+  pagePaddingWide: "28px 20px 40px",
+  sectionGap: "20px",
+  cardPadding: "clamp(18px, 3vw, 28px)",
+} as const;
+
 export function getFeedbackPalette(type: "success" | "error" | "info"): React.CSSProperties {
   if (type === "success") {
     return {
