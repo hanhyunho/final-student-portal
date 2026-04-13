@@ -75,10 +75,9 @@ function HorizontalBarCard({
       style={{
         background: portalTheme.gradients.card,
         border: `1px solid ${portalTheme.colors.line}`,
-        borderLeft: `4px solid ${portalTheme.colors.primary}`,
         borderRadius: portalTheme.radius.md,
-        padding: "18px",
-        boxShadow: portalTheme.shadows.card,
+        padding: "clamp(16px, 2.8vw, 18px)",
+        boxShadow: portalTheme.shadows.panel,
       }}
     >
       <div style={{ marginBottom: "14px" }}>
@@ -93,7 +92,7 @@ function HorizontalBarCard({
             height: "280px",
             borderRadius: portalTheme.radius.md,
             border: `1px solid ${portalTheme.colors.line}`,
-            background: portalTheme.gradients.cardTint,
+            background: portalTheme.colors.surfacePanel,
             padding: "10px",
           }}
         >
@@ -144,11 +143,10 @@ export function StudentChartSection({
     chartSection: {
       background: portalTheme.gradients.card,
       borderRadius: portalTheme.radius.md,
-      padding: "22px",
-      boxShadow: portalTheme.shadows.card,
-      marginBottom: "20px",
+      padding: "clamp(16px, 3vw, 22px)",
+      boxShadow: portalTheme.shadows.panel,
+      marginBottom: "16px",
       border: `1px solid ${portalTheme.colors.line}`,
-      borderLeft: `4px solid ${portalTheme.colors.primary}`,
     },
     chartHeader: {
       marginBottom: "18px",
@@ -168,7 +166,7 @@ export function StudentChartSection({
     },
     grid: {
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
       gap: "16px",
     },
   };

@@ -24,6 +24,10 @@ type PortalSharedState = {
   branches: Branch[];
   students: Student[];
   accounts: Account[];
+  mockExams: MockExam[];
+  mockScores: MockScore[];
+  physicalTests: PhysicalTest[];
+  physicalRecords: PhysicalRecord[];
   currentAccount: Account | null;
   isLoaded: boolean;
   isLoading: boolean;
@@ -36,12 +40,20 @@ type PortalLightData = {
   branches: Branch[];
   students: Student[];
   accounts?: Account[];
+  mockExams?: MockExam[];
+  mockScores?: MockScore[];
+  physicalTests?: PhysicalTest[];
+  physicalRecords?: PhysicalRecord[];
 };
 
 let portalSharedState: PortalSharedState = {
   branches: [],
   students: [],
   accounts: [],
+  mockExams: [],
+  mockScores: [],
+  physicalTests: [],
+  physicalRecords: [],
   currentAccount: null,
   isLoaded: false,
   isLoading: false,
@@ -115,6 +127,10 @@ export async function ensurePortalSharedLightData(loader: () => Promise<PortalLi
       branches: portalSharedState.branches,
       students: portalSharedState.students,
       accounts: portalSharedState.accounts,
+      mockExams: portalSharedState.mockExams,
+      mockScores: portalSharedState.mockScores,
+      physicalTests: portalSharedState.physicalTests,
+      physicalRecords: portalSharedState.physicalRecords,
     } satisfies PortalLightData;
   }
 
@@ -130,6 +146,10 @@ export async function ensurePortalSharedLightData(loader: () => Promise<PortalLi
         branches: result.branches || [],
         students: result.students || [],
         accounts: result.accounts || portalSharedState.accounts,
+        mockExams: result.mockExams || [],
+        mockScores: result.mockScores || [],
+        physicalTests: result.physicalTests || [],
+        physicalRecords: result.physicalRecords || [],
       } satisfies PortalLightData;
 
       setPortalSharedState({
@@ -155,11 +175,19 @@ export function syncPortalSharedLightData(input: {
   branches?: Branch[];
   students?: Student[];
   accounts?: Account[];
+  mockExams?: MockExam[];
+  mockScores?: MockScore[];
+  physicalTests?: PhysicalTest[];
+  physicalRecords?: PhysicalRecord[];
 }) {
   setPortalSharedState({
     branches: input.branches ?? portalSharedState.branches,
     students: input.students ?? portalSharedState.students,
     accounts: input.accounts ?? portalSharedState.accounts,
+    mockExams: input.mockExams ?? portalSharedState.mockExams,
+    mockScores: input.mockScores ?? portalSharedState.mockScores,
+    physicalTests: input.physicalTests ?? portalSharedState.physicalTests,
+    physicalRecords: input.physicalRecords ?? portalSharedState.physicalRecords,
     isLoaded: true,
     isLoading: false,
   });
@@ -380,6 +408,10 @@ export function resetPortalSharedStore() {
     branches: [],
     students: [],
     accounts: [],
+    mockExams: [],
+    mockScores: [],
+    physicalTests: [],
+    physicalRecords: [],
     currentAccount: null,
     isLoaded: false,
     isLoading: false,

@@ -1,4 +1,5 @@
 const STUDENTS_SHEET_NAME = 'students';
+const ACCOUNTS_SHEET_NAME = 'accounts';
 const BRANCHES_SHEET_NAME = 'branches';
 const MOCK_SCORES_SHEET_NAME = 'mock_scores';
 const PHYSICAL_RECORDS_SHEET_NAME = 'physical_records';
@@ -29,6 +30,10 @@ function doPost(e) {
 
     if (action === 'saveStudent') {
       return jsonOutput_(saveStudent_(payload));
+    }
+
+    if (action === 'saveAccountStatus') {
+      return jsonOutput_(saveAccountStatus_(payload));
     }
 
     if (action === 'saveBranch') {
@@ -261,6 +266,7 @@ function saveStudent_(inputRow) {
   const studentId = stringValue_(row.student_id);
   const name = stringValue_(row.name);
   const branchId = stringValue_(row.branch_id);
+  const requestedLoginStatus = normalizeLoginStatusValue_(row.login_status || row.is_active);
 
   if (!studentId) {
     return failResponse_('student_id is required.', 400, { mode: 'rejected', rowIndex: null });
@@ -306,13 +312,22 @@ function saveStudent_(inputRow) {
     }
 
     sheet.getRange(foundRowIndex, 1, 1, headers.length).setValues([updatedRowValues]);
+    const savedStudentRow = objectFromRowValues_(headers, updatedRowValues);
+    const accountResult = upsertStudentAccount_(savedStudentRow, requestedLoginStatus);
+
+    if (accountResult.success !== true && accountResult.ok !== true) {
+      return accountResult;
+    }
+
+    savedStudentRow.login_status = accountResult.login_status || requestedLoginStatus;
 
     return {
       ok: true,
       success: true,
       mode: mode,
       rowIndex: foundRowIndex,
-      data: objectFromRowValues_(headers, updatedRowValues),
+      data: savedStudentRow,
+      account: accountResult.data,
       message: 'Student updated successfully.',
     };
   }
@@ -328,13 +343,22 @@ function saveStudent_(inputRow) {
 
   sheet.appendRow(insertedRowValues);
   const insertedRowIndex = sheet.getLastRow();
+  const savedStudentRow = objectFromRowValues_(headers, insertedRowValues);
+  const accountResult = upsertStudentAccount_(savedStudentRow, requestedLoginStatus);
+
+  if (accountResult.success !== true && accountResult.ok !== true) {
+    return accountResult;
+  }
+
+  savedStudentRow.login_status = accountResult.login_status || requestedLoginStatus;
 
   return {
     ok: true,
     success: true,
     mode: mode,
     rowIndex: insertedRowIndex,
-    data: objectFromRowValues_(headers, insertedRowValues),
+    data: savedStudentRow,
+    account: accountResult.data,
     message: 'Student inserted successfully.',
   };
 }
@@ -352,6 +376,7 @@ function listStudents_() {
   }
 
   const headers = values[0].map(stringValue_);
+  const accountLookup = buildStudentAccountLookup_();
   const rows = [];
 
   for (var index = 1; index < values.length; index += 1) {
@@ -361,6 +386,7 @@ function listStudents_() {
       continue;
     }
 
+    rowObject.login_status = resolveStudentLoginStatus_(accountLookup, rowObject.student_id);
     rows.push(rowObject);
   }
 
@@ -838,4 +864,260 @@ function jsonOutput_(payload) {
   return ContentService
     .createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function saveAccountStatus_(inputRow) {
+  const row = normalizeRowObject_(inputRow);
+  const accountId = stringValue_(row.account_id);
+  const studentId = stringValue_(row.student_id);
+  const loginId = stringValue_(row.login_id);
+  const isActive = stringValue_(row.is_active);
+
+  if (!accountId && !studentId && !loginId) {
+    return failResponse_('account_id, student_id, or login_id is required.', 400, {
+      action: 'saveAccountStatus',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const sheet = getSheet_(ACCOUNTS_SHEET_NAME);
+  const values = getSheetValues_(sheet);
+
+  if (values.length === 0) {
+    return failResponse_('accounts sheet is empty.', 500, {
+      action: 'saveAccountStatus',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const headers = values[0].map(stringValue_);
+  const headerMap = buildHeaderMap_(headers);
+
+  if (headerMap.is_active === undefined) {
+    return failResponse_('Missing required header: is_active', 500, {
+      action: 'saveAccountStatus',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const foundRowIndex = findAccountRowIndex_(values, headerMap, {
+    account_id: accountId,
+    student_id: studentId,
+    login_id: loginId,
+    role: stringValue_(row.role) || 'student',
+  });
+
+  if (foundRowIndex <= 1) {
+    return failResponse_('Account not found.', 404, {
+      action: 'saveAccountStatus',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const existingRowValues = values[foundRowIndex - 1];
+  const nextRow = {
+    account_id: accountId,
+    student_id: studentId,
+    login_id: loginId,
+    branch_id: stringValue_(row.branch_id),
+    name: stringValue_(row.name),
+    is_active: isActive,
+    updated_at: new Date().toISOString(),
+  };
+  const updatedRowValues = buildUpdatedRowValues_(headers, existingRowValues, nextRow);
+
+  sheet.getRange(foundRowIndex, 1, 1, headers.length).setValues([updatedRowValues]);
+
+  return {
+    ok: true,
+    success: true,
+    action: 'saveAccountStatus',
+    mode: 'update',
+    rowIndex: foundRowIndex,
+    data: objectFromRowValues_(headers, updatedRowValues),
+    message: 'Account status updated successfully.',
+  };
+}
+
+function findAccountRowIndex_(values, headerMap, row) {
+  if (headerMap.account_id !== undefined && stringValue_(row.account_id)) {
+    const matchedByAccountId = findRowIndexByValue_(values, headerMap.account_id, row.account_id);
+
+    if (matchedByAccountId > 1) {
+      return matchedByAccountId;
+    }
+  }
+
+  if (headerMap.student_id !== undefined && stringValue_(row.student_id)) {
+    for (var index = 1; index < values.length; index += 1) {
+      const matchedStudentId = stringValue_(values[index][headerMap.student_id]) === stringValue_(row.student_id);
+      const matchedRole = headerMap.role === undefined || !stringValue_(row.role)
+        ? true
+        : normalizeCompareText_(values[index][headerMap.role]) === normalizeCompareText_(row.role);
+
+      if (matchedStudentId && matchedRole) {
+        return index + 1;
+      }
+    }
+  }
+
+  if (headerMap.login_id !== undefined && stringValue_(row.login_id)) {
+    const matchedByLoginId = findRowIndexByValue_(values, headerMap.login_id, row.login_id);
+
+    if (matchedByLoginId > 1) {
+      return matchedByLoginId;
+    }
+  }
+
+  return 0;
+}
+
+function buildStudentAccountLookup_() {
+  const sheet = getSheet_(ACCOUNTS_SHEET_NAME);
+  const values = getSheetValues_(sheet);
+
+  if (values.length === 0) {
+    return {};
+  }
+
+  const headers = values[0].map(stringValue_);
+  const lookup = {};
+
+  for (var index = 1; index < values.length; index += 1) {
+    const rowObject = objectFromRowValues_(headers, values[index]);
+    const studentId = stringValue_(rowObject.student_id);
+    const role = normalizeCompareText_(rowObject.role);
+
+    if (!studentId || role !== 'student' || lookup[studentId]) {
+      continue;
+    }
+
+    lookup[studentId] = rowObject;
+  }
+
+  return lookup;
+}
+
+function resolveStudentLoginStatus_(accountLookup, studentId) {
+  const key = stringValue_(studentId);
+
+  if (!key || !accountLookup[key]) {
+    return 'active';
+  }
+
+  return normalizeLoginStatusValue_(accountLookup[key].is_active);
+}
+
+function normalizeLoginStatusValue_(value) {
+  const normalized = normalizeCompareText_(value);
+
+  if (!normalized) {
+    return 'active';
+  }
+
+  if (normalized === 'inactive' || normalized === 'false' || normalized === '0' || normalized === 'n' || normalized === 'no') {
+    return 'inactive';
+  }
+
+  return 'active';
+}
+
+function loginStatusToSheetValue_(value) {
+  return normalizeLoginStatusValue_(value) === 'inactive' ? 'FALSE' : 'TRUE';
+}
+
+function generateAccountId_() {
+  return 'account-' + Utilities.getUuid();
+}
+
+function findStudentAccountRowIndex_(values, headerMap, studentId) {
+  if (headerMap.student_id === undefined) {
+    return 0;
+  }
+
+  for (var index = 1; index < values.length; index += 1) {
+    const matchedStudentId = stringValue_(values[index][headerMap.student_id]) === stringValue_(studentId);
+    const matchedRole = headerMap.role === undefined || normalizeCompareText_(values[index][headerMap.role]) === 'student';
+
+    if (matchedStudentId && matchedRole) {
+      return index + 1;
+    }
+  }
+
+  return 0;
+}
+
+function upsertStudentAccount_(studentRow, requestedLoginStatus) {
+  const sheet = getSheet_(ACCOUNTS_SHEET_NAME);
+  const values = getSheetValues_(sheet);
+
+  if (values.length === 0) {
+    return failResponse_('accounts sheet is empty.', 500, {
+      action: 'saveStudent',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const headers = values[0].map(stringValue_);
+  const headerMap = buildHeaderMap_(headers);
+
+  if (headerMap.student_id === undefined || headerMap.is_active === undefined) {
+    return failResponse_('Missing required accounts headers.', 500, {
+      action: 'saveStudent',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const studentId = stringValue_(studentRow.student_id);
+  const foundRowIndex = findStudentAccountRowIndex_(values, headerMap, studentId);
+  const mode = foundRowIndex > 1 ? 'update' : 'insert';
+  const now = new Date().toISOString();
+  const nextLoginStatus = normalizeLoginStatusValue_(requestedLoginStatus);
+  const existingRowValues = foundRowIndex > 1 ? values[foundRowIndex - 1] : null;
+  const existingRow = existingRowValues ? objectFromRowValues_(headers, existingRowValues) : {};
+  const nextRow = {
+    account_id: stringValue_(existingRow.account_id) || generateAccountId_(),
+    login_id: stringValue_(existingRow.login_id) || stringValue_(studentRow.student_no) || studentId,
+    password_hash: stringValue_(existingRow.password_hash),
+    role: 'student',
+    student_id: studentId,
+    branch_id: stringValue_(studentRow.branch_id),
+    name: stringValue_(studentRow.name),
+    is_active: loginStatusToSheetValue_(nextLoginStatus),
+    created_at: stringValue_(existingRow.created_at) || now,
+    updated_at: now,
+  };
+
+  if (mode === 'update') {
+    const updatedRowValues = buildUpdatedRowValues_(headers, existingRowValues, nextRow);
+    sheet.getRange(foundRowIndex, 1, 1, headers.length).setValues([updatedRowValues]);
+
+    return {
+      ok: true,
+      success: true,
+      mode: mode,
+      rowIndex: foundRowIndex,
+      login_status: nextLoginStatus,
+      data: objectFromRowValues_(headers, updatedRowValues),
+    };
+  }
+
+  const insertedRowValues = buildInsertedRowValues_(headers, nextRow);
+  sheet.appendRow(insertedRowValues);
+  const insertedRowIndex = sheet.getLastRow();
+
+  return {
+    ok: true,
+    success: true,
+    mode: mode,
+    rowIndex: insertedRowIndex,
+    login_status: nextLoginStatus,
+    data: objectFromRowValues_(headers, insertedRowValues),
+  };
 }

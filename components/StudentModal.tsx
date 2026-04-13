@@ -9,13 +9,14 @@ interface StudentModalProps {
   isOpen: boolean;
   mode: "add" | "edit";
   student: Student | null;
+  initialLoginStatus?: string;
   branches: Branch[];
   mockExams: MockExam[];
   physicalTests: PhysicalTest[];
   physicalRecords: PhysicalRecord[];
   saving: boolean;
   onClose: () => void;
-  onSave: (student: Student) => Promise<Student | null>;
+  onSave: (student: Student & { loginStatus?: string }) => Promise<Student | null>;
   onSaveExamScores?: (
     examId: string,
     scores: Partial<Student>,
@@ -41,6 +42,7 @@ type SaveNotice = {
 
 type StudentWithExamScores = Student & {
   exam_scores?: Record<string, Partial<Student>>;
+  loginStatus?: string;
 };
 
 const emptyForm: Student = {
@@ -56,7 +58,7 @@ const emptyForm: Student = {
   parent_phone: "",
   branch_id: "",
   admission_year: "",
-  status: "active",
+  status: "등록",
   memo: "",
   exam_id: "",
   korean_name: "",
@@ -121,6 +123,15 @@ function buildPhysicalTestLabel(test: PhysicalTest) {
 
 function normalizeCompareText(value: unknown) {
   return s(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeLoginStatus(value: unknown) {
+  return normalizeCompareText(value) === "inactive" ? "inactive" : "active";
+}
+
+function normalizeStudentStatus(value: unknown) {
+  const normalized = s(value).trim();
+  return ["등록", "휴원", "졸업", "퇴원"].includes(normalized) ? normalized : "등록";
 }
 
 function getSortableDateValue(rawDate: unknown) {
@@ -189,6 +200,7 @@ export function StudentModal({
   isOpen,
   mode,
   student,
+  initialLoginStatus = "active",
   branches,
   mockExams,
   physicalTests,
@@ -200,6 +212,7 @@ export function StudentModal({
   onSavePhysicalRecord,
 }: StudentModalProps) {
   const [form, setForm] = useState<Student>(emptyForm);
+  const [loginStatus, setLoginStatus] = useState("active");
   const [examScores, setExamScores] = useState<Record<string, Partial<Student>>>({});
   const [currentExamId, setCurrentExamId] = useState<string>("");
   const [hasUnsavedExamChanges, setHasUnsavedExamChanges] = useState(false);
@@ -755,6 +768,7 @@ export function StudentModal({
         ...emptyForm,
         branch_id: branches.length === 1 ? s(branches[0]?.branch_id) : "",
       });
+      setLoginStatus("active");
       setExamScores({});
       setCurrentExamId("");
       setHasUnsavedExamChanges(false);
@@ -786,7 +800,7 @@ export function StudentModal({
         parent_phone: s(student.parent_phone),
         branch_id: s(student.branch_id),
         admission_year: s(student.admission_year),
-        status: s(student.status) || "active",
+        status: normalizeStudentStatus(student.status),
         memo: s(student.memo),
         exam_id: s(student.exam_id),
         korean_name: s(student.korean_name),
@@ -822,6 +836,9 @@ export function StudentModal({
         physical_total_score: s(student.physical_total_score),
         physical_memo: s(student.physical_memo),
       });
+      setLoginStatus(
+        normalizeLoginStatus(initialLoginStatus)
+      );
 
       // On initial modal load, if saved exam data exists, restore
       const studentWithExamScores = student as StudentWithExamScores;
@@ -877,7 +894,7 @@ export function StudentModal({
       setSelectedPhysicalTestId(nextPhysicalTestId);
       loadPhysicalRecord(nextPhysicalTestId);
     }
-  }, [branches, isOpen, mode, student, physicalRecords, physicalTests, loadPhysicalRecord, selectedPhysicalTestId]);
+  }, [branches, initialLoginStatus, isOpen, loadPhysicalRecord, mode, physicalRecords, physicalTests, selectedPhysicalTestId, student]);
 
   useEffect(() => {
     if (!isOpen || !leftPanelRef.current) {
@@ -987,6 +1004,7 @@ export function StudentModal({
       const payloadWithExamScores: StudentWithExamScores = {
         ...payload,
         exam_scores: examScores,
+        loginStatus: normalizeLoginStatus(loginStatus),
       };
 
       const savedStudent = await onSave(payloadWithExamScores);
@@ -1239,14 +1257,27 @@ export function StudentModal({
                 />
               </div>
               <div style={styles.formField}>
+                <label style={styles.formLabel}>로그인여부</label>
+                <select
+                  style={styles.formInput}
+                  value={loginStatus}
+                  onChange={(e) => setLoginStatus(e.target.value)}
+                >
+                  <option value="active">active</option>
+                  <option value="inactive">inactive</option>
+                </select>
+              </div>
+              <div style={styles.formField}>
                 <label style={styles.formLabel}>상태</label>
                 <select
                   style={styles.formInput}
                   value={form.status}
                   onChange={(e) => setForm({ ...form, status: e.target.value })}
                 >
-                  <option value="active">active</option>
-                  <option value="inactive">inactive</option>
+                  <option value="등록">등록</option>
+                  <option value="휴원">휴원</option>
+                  <option value="졸업">졸업</option>
+                  <option value="퇴원">퇴원</option>
                 </select>
               </div>
               <div style={styles.formFieldWide}>

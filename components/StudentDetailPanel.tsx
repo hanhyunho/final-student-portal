@@ -21,6 +21,8 @@ interface StudentDetailPanelProps {
   physicalChartData?: StudentPhysicalChartPoint[];
   canManage?: boolean;
   sticky?: boolean;
+  showActions?: boolean;
+  badgeLabel?: string;
   onEdit: () => void;
   onDelete: () => void;
   onShowDetail: () => void;
@@ -36,22 +38,103 @@ export function StudentDetailPanel({
   physicalChartData = [],
   canManage = true,
   sticky = true,
+  showActions = true,
+  badgeLabel = "선택된 학생",
   onEdit,
   onDelete,
   onShowDetail,
-  getAverageNumber,
-  getGradeBadgeStyle,
   getBranchLabel,
   s,
 }: StudentDetailPanelProps) {
+  const stdSeries = mockChartData.map((point, index) => ({
+    key: `series_${index + 1}`,
+    label: buildShortMockSeriesLabel(point.exam_name, point.exam_date),
+    color: getSeriesColor(index),
+    values: {
+      korean: point.korean_std,
+      math: point.math_std,
+      inquiry1: point.inquiry1_std,
+      inquiry2: point.inquiry2_std,
+    },
+  }));
+
+  const stdChartData = [
+    { category: "국어", metricKey: "korean" },
+    { category: "수학", metricKey: "math" },
+    { category: "탐구1", metricKey: "inquiry1" },
+    { category: "탐구2", metricKey: "inquiry2" },
+  ].map((item) => ({
+    category: item.category,
+    ...Object.fromEntries(stdSeries.map((series) => [series.key, series.values[item.metricKey as keyof typeof series.values]])),
+  }));
+
+  const pctSeries = mockChartData.map((point, index) => ({
+    key: `series_${index + 1}`,
+    label: buildShortMockSeriesLabel(point.exam_name, point.exam_date),
+    color: getSeriesColor(index),
+    values: {
+      korean: point.korean_pct,
+      math: point.math_pct,
+      inquiry1: point.inquiry1_pct,
+      inquiry2: point.inquiry2_pct,
+    },
+  }));
+
+  const pctChartData = [
+    { category: "국어", metricKey: "korean" },
+    { category: "수학", metricKey: "math" },
+    { category: "탐구1", metricKey: "inquiry1" },
+    { category: "탐구2", metricKey: "inquiry2" },
+  ].map((item) => ({
+    category: item.category,
+    ...Object.fromEntries(pctSeries.map((series) => [series.key, series.values[item.metricKey as keyof typeof series.values]])),
+  }));
+
+  const physicalSeries = physicalChartData.map((point, index) => ({
+    key: `series_${index + 1}`,
+    label: buildShortPhysicalSeriesLabel(point.test_date),
+    color: getSeriesColor(index),
+    values: {
+      back_strength: point.back_strength,
+      run_10m: point.run_10m,
+      medicine_ball: point.medicine_ball,
+      sit_reach: point.sit_reach,
+      standing_jump: point.standing_jump,
+      run_20m: point.run_20m,
+    },
+    records: {
+      back_strength: point.back_strength_record,
+      run_10m: point.run_10m_record,
+      medicine_ball: point.medicine_ball_record,
+      sit_reach: point.sit_reach_record,
+      standing_jump: point.standing_jump_record,
+      run_20m: point.run_20m_record,
+    },
+  }));
+
+  const physicalGroupedChartData = [
+    { category: "배근력", metricKey: "back_strength" },
+    { category: "10m", metricKey: "run_10m" },
+    { category: "메디신볼", metricKey: "medicine_ball" },
+    { category: "좌전굴", metricKey: "sit_reach" },
+    { category: "제자리멀리뛰기", metricKey: "standing_jump" },
+    { category: "20m왕복달리기", metricKey: "run_20m" },
+  ].map((item) => ({
+    category: item.category,
+    metricKey: item.metricKey,
+    ...Object.fromEntries(physicalSeries.map((series) => [series.key, series.values[item.metricKey as keyof typeof series.values]])),
+    ...Object.fromEntries(
+      physicalSeries.map((series) => [`${series.key}__record`, series.records[item.metricKey as keyof typeof series.records]])
+    ),
+  }));
+
   const styles: { [key: string]: React.CSSProperties } = {
     detailCard: {
       background: portalTheme.gradients.card,
-      padding: "24px",
+      padding: "clamp(16px, 3vw, 24px)",
       borderRadius: portalTheme.radius.md,
-      boxShadow: portalTheme.shadows.card,
+      boxShadow: portalTheme.shadows.panel,
       border: `1px solid ${portalTheme.colors.line}`,
-      borderLeft: `4px solid ${portalTheme.colors.primary}`,
       position: sticky ? "sticky" : "relative",
       top: sticky ? "20px" : undefined,
     },
@@ -60,10 +143,11 @@ export function StudentDetailPanel({
       padding: "7px 12px",
       borderRadius: portalTheme.radius.pill,
       background: portalTheme.colors.primarySoft,
-      color: portalTheme.colors.primary,
+      color: portalTheme.colors.primaryStrong,
       fontSize: "12px",
       fontWeight: 700,
       marginBottom: "14px",
+      border: `1px solid ${portalTheme.colors.primaryTint}`,
     },
     detailName: {
       margin: "0 0 8px 0",
@@ -73,46 +157,9 @@ export function StudentDetailPanel({
       letterSpacing: "-0.5px",
     },
     detailSub: {
-      margin: "0 0 20px 0",
+      margin: "0 0 16px 0",
       color: portalTheme.colors.textMuted,
       fontSize: "14px",
-    },
-    scoreGrid: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: "12px",
-      marginBottom: "20px",
-    },
-    scoreBox: {
-      background: portalTheme.colors.surfacePanel,
-      borderRadius: portalTheme.radius.md,
-      padding: "16px",
-      border: `1px solid ${portalTheme.colors.line}`,
-      minHeight: "98px",
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "space-between",
-      boxShadow: portalTheme.shadows.soft,
-    },
-    scoreLabel: {
-      display: "block",
-      fontSize: "12px",
-      color: portalTheme.colors.textMuted,
-      marginBottom: "8px",
-    },
-    scoreValue: {
-      fontSize: "26px",
-      fontWeight: 900,
-      color: portalTheme.colors.textStrong,
-    },
-    gradeBadge: {
-      display: "inline-block",
-      width: "fit-content",
-      padding: "5px 9px",
-      borderRadius: portalTheme.radius.pill,
-      fontSize: "12px",
-      fontWeight: 700,
-      marginTop: "8px",
     },
     infoSection: {
       borderTop: `1px solid ${portalTheme.colors.line}`,
@@ -127,22 +174,18 @@ export function StudentDetailPanel({
       fontSize: "14px",
       marginBottom: "10px",
       color: portalTheme.colors.textPrimary,
+      alignItems: "flex-start",
     },
     infoTitle: {
       fontWeight: 700,
       color: portalTheme.colors.textMuted,
+      flex: "0 0 88px",
     },
-    subjectPanel: {
-      display: "flex",
-      flexDirection: "column",
-      gap: "12px",
-      marginTop: "20px",
-    },
-    subjectTitle: {
-      margin: "0 0 4px 0",
-      fontSize: "18px",
-      fontWeight: 900,
-      color: portalTheme.colors.textStrong,
+    infoValue: {
+      flex: 1,
+      textAlign: "right",
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
     },
     subjectBox: {
       background: portalTheme.colors.surfacePanel,
@@ -160,24 +203,55 @@ export function StudentDetailPanel({
       marginBottom: "8px",
     },
     section: {
-      marginTop: "20px",
+      marginTop: "24px",
     },
-    sectionTitle: {
-      margin: "0 0 12px 0",
-      fontSize: "18px",
+    chartGrid: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+      gap: "14px",
+    },
+    chartPanel: {
+      background: portalTheme.colors.surfacePanel,
+      borderRadius: portalTheme.radius.md,
+      padding: "16px",
+      border: `1px solid ${portalTheme.colors.line}`,
+      boxShadow: portalTheme.shadows.soft,
+    },
+    chartPanelTitle: {
+      margin: "0 0 4px 0",
+      fontSize: "16px",
       fontWeight: 900,
       color: portalTheme.colors.textStrong,
     },
+    chartPanelHint: {
+      margin: "0 0 12px 0",
+      fontSize: "12px",
+      lineHeight: 1.5,
+      color: portalTheme.colors.textMuted,
+    },
+    sectionTitle: {
+      margin: "0 0 8px 0",
+      fontSize: "clamp(18px, 2.4vw, 21px)",
+      fontWeight: 900,
+      color: portalTheme.colors.textStrong,
+    },
+    sectionHint: {
+      margin: "0 0 14px 0",
+      fontSize: "clamp(12px, 1.8vw, 13px)",
+      color: portalTheme.colors.textMuted,
+      lineHeight: 1.5,
+      maxWidth: "720px",
+    },
     chartCard: {
-      background: portalTheme.gradients.cardTint,
+      background: portalTheme.colors.surfacePanel,
       borderRadius: portalTheme.radius.md,
       padding: "16px",
-      border: `1px solid ${portalTheme.colors.lineStrong}`,
+      border: `1px solid ${portalTheme.colors.line}`,
       boxShadow: portalTheme.shadows.soft,
     },
     chartWrap: {
       width: "100%",
-      height: "320px",
+      height: "clamp(320px, 46vw, 380px)",
     },
     actionButtons: {
       display: "flex",
@@ -189,8 +263,8 @@ export function StudentDetailPanel({
       flex: 1,
       minWidth: "100px",
       ...portalButtonStyles.success,
-      padding: "12px 16px",
-      fontSize: "14px",
+      padding: "clamp(9px, 2.2vw, 12px) clamp(12px, 3vw, 16px)",
+      fontSize: "clamp(12px, 1.9vw, 14px)",
       fontWeight: 700,
       cursor: "pointer",
     },
@@ -198,8 +272,8 @@ export function StudentDetailPanel({
       flex: 1,
       minWidth: "100px",
       ...portalButtonStyles.warning,
-      padding: "12px 16px",
-      fontSize: "14px",
+      padding: "clamp(9px, 2.2vw, 12px) clamp(12px, 3vw, 16px)",
+      fontSize: "clamp(12px, 1.9vw, 14px)",
       fontWeight: 700,
       cursor: "pointer",
     },
@@ -207,8 +281,8 @@ export function StudentDetailPanel({
       flex: 1,
       minWidth: "100px",
       ...portalButtonStyles.secondary,
-      padding: "12px 16px",
-      fontSize: "14px",
+      padding: "clamp(9px, 2.2vw, 12px) clamp(12px, 3vw, 16px)",
+      fontSize: "clamp(12px, 1.9vw, 14px)",
       fontWeight: 700,
       cursor: "pointer",
     },
@@ -224,119 +298,98 @@ export function StudentDetailPanel({
 
   return (
     <div style={styles.detailCard}>
-      <p style={styles.selectedBadge}>선택된 학생</p>
+      <p style={styles.selectedBadge}>{badgeLabel}</p>
       <h2 style={styles.detailName}>{s(student.name)}</h2>
       <p style={styles.detailSub}>
-        {s(student.school_name)} · {s(student.grade)}학년 · {s(student.class_name) || "-"}반 ·{" "}
-        {getBranchLabel(s(student.branch_id))}
+        {s(student.school_name) || "학교 정보 없음"} · {s(student.grade) ? `${s(student.grade)}학년` : "학년 정보 없음"} · {getBranchLabel(s(student.branch_id))}
       </p>
-
-      <div style={styles.scoreGrid}>
-        <div style={styles.scoreBox}>
-          <span style={styles.scoreLabel}>국어</span>
-          <strong style={styles.scoreValue}>{s(student.korean_raw) || "-"}</strong>
-          <span style={{ ...styles.gradeBadge, ...getGradeBadgeStyle(student.korean_grade) }}>
-            {s(student.korean_grade) || "-"}등급
-          </span>
-        </div>
-        <div style={styles.scoreBox}>
-          <span style={styles.scoreLabel}>수학</span>
-          <strong style={styles.scoreValue}>{s(student.math_raw) || "-"}</strong>
-          <span style={{ ...styles.gradeBadge, ...getGradeBadgeStyle(student.math_grade) }}>
-            {s(student.math_grade) || "-"}등급
-          </span>
-        </div>
-        <div style={styles.scoreBox}>
-          <span style={styles.scoreLabel}>영어</span>
-          <strong style={styles.scoreValue}>{s(student.english_raw) || "-"}</strong>
-          <span style={{ ...styles.gradeBadge, ...getGradeBadgeStyle(student.english_grade) }}>
-            {s(student.english_grade) || "-"}등급
-          </span>
-        </div>
-        <div style={styles.scoreBox}>
-          <span style={styles.scoreLabel}>평균</span>
-          <strong style={styles.scoreValue}>{getAverageNumber(student).toFixed(1)}</strong>
-        </div>
-      </div>
 
       <div style={styles.infoSection}>
         <div style={styles.infoRow}>
           <span style={styles.infoTitle}>학생 ID</span>
-          <span>{s(student.student_id)}</span>
-        </div>
-        <div style={styles.infoRow}>
-          <span style={styles.infoTitle}>학번</span>
-          <span>{s(student.student_no) || "-"}</span>
+          <span style={styles.infoValue}>{s(student.student_id)}</span>
         </div>
         <div style={styles.infoRow}>
           <span style={styles.infoTitle}>성별</span>
-          <span>{s(student.gender) || "-"}</span>
+          <span style={styles.infoValue}>{s(student.gender) || "-"}</span>
         </div>
         <div style={styles.infoRow}>
           <span style={styles.infoTitle}>생년월일</span>
-          <span>{s(student.birth_date) || "-"}</span>
+          <span style={styles.infoValue}>{s(student.birth_date) || "-"}</span>
         </div>
         <div style={styles.infoRow}>
           <span style={styles.infoTitle}>지점</span>
-          <span>{getBranchLabel(s(student.branch_id))}</span>
+          <span style={styles.infoValue}>{getBranchLabel(s(student.branch_id))}</span>
         </div>
         <div style={styles.infoRow}>
           <span style={styles.infoTitle}>연락처</span>
-          <span>{s(student.phone) || "-"}</span>
+          <span style={styles.infoValue}>{s(student.phone) || "-"}</span>
         </div>
         <div style={styles.infoRow}>
           <span style={styles.infoTitle}>학부모연락처</span>
-          <span>{s(student.parent_phone) || "-"}</span>
-        </div>
-        <div style={styles.infoRow}>
-          <span style={styles.infoTitle}>입학연도</span>
-          <span>{s(student.admission_year) || "-"}</span>
-        </div>
-        <div style={styles.infoRow}>
-          <span style={styles.infoTitle}>상태</span>
-          <span>{s(student.status) || "-"}</span>
-        </div>
-        <div style={styles.infoRow}>
-          <span style={styles.infoTitle}>시험 유형</span>
-          <span>{s(student.exam_id) || "-"}</span>
+          <span style={styles.infoValue}>{s(student.parent_phone) || "-"}</span>
         </div>
         <div style={styles.infoRow}>
           <span style={styles.infoTitle}>등록일시</span>
-          <span>{s(student.created_at) || "-"}</span>
+          <span style={styles.infoValue}>{s(student.created_at) || "-"}</span>
         </div>
-      </div>
-
-      <div style={styles.subjectPanel}>
-        <h4 style={styles.subjectTitle}>기본 메모</h4>
-        <div style={styles.subjectBox}>
-          <div style={styles.subjectRow}>
-            <span>메모</span>
-            <span>{s(student.memo) || "-"}</span>
-          </div>
+        <div style={{ ...styles.infoRow, marginBottom: 0 }}>
+          <span style={styles.infoTitle}>기본 메모</span>
+          <span style={styles.infoValue}>{s(student.memo) || "-"}</span>
         </div>
       </div>
 
       <div style={styles.section}>
         <h3 style={styles.sectionTitle}>모의고사 추이</h3>
-        {mockChartData.length === 0 ? (
+        <p style={styles.sectionHint}>원점수는 제거하고, 표준점수와 백분위만 짧은 회차 표기로 분리해서 비교할 수 있게 정리했습니다.</p>
+        {stdSeries.length === 0 && pctSeries.length === 0 ? (
           <EmptyState title="모의고사 데이터가 없습니다" description="저장된 모의고사 기록이 없습니다." />
         ) : (
-          <div style={styles.chartCard}>
-            <div style={styles.chartWrap}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={mockChartData} margin={{ top: 8, right: 12, left: 0, bottom: 12 }} barGap={6} barCategoryGap={20}>
-                  <CartesianGrid stroke={portalTheme.colors.lineStrong} strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: portalTheme.colors.textPrimary, fontWeight: 700 }} interval={0} angle={0} textAnchor="middle" height={40} tickLine={false} axisLine={{ stroke: portalTheme.colors.lineStrong }} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: portalTheme.colors.textMuted }} />
-                  <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle} cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} />
-                  <Legend wrapperStyle={legendStyle} />
-                  <Bar dataKey="korean" name="국어" fill={portalTheme.chart[0]} radius={[6, 6, 0, 0]} maxBarSize={18} />
-                  <Bar dataKey="math" name="수학" fill={portalTheme.chart[1]} radius={[6, 6, 0, 0]} maxBarSize={18} />
-                  <Bar dataKey="english" name="영어" fill={portalTheme.chart[3]} radius={[6, 6, 0, 0]} maxBarSize={18} />
-                  <Bar dataKey="inquiry1" name="탐구1" fill={portalTheme.chart[2]} radius={[6, 6, 0, 0]} maxBarSize={18} />
-                  <Bar dataKey="inquiry2" name="탐구2" fill={portalTheme.chart[4]} radius={[6, 6, 0, 0]} maxBarSize={18} />
-                </BarChart>
-              </ResponsiveContainer>
+          <div style={styles.chartGrid}>
+            <div style={styles.chartPanel}>
+              <h4 style={styles.chartPanelTitle}>표준점수 추이</h4>
+              <p style={styles.chartPanelHint}>과목별로 각 시험 회차의 표준점수를 비교합니다.</p>
+              {stdSeries.length === 0 ? (
+                <EmptyState title="표준점수 데이터가 없습니다" description="표시할 표준점수 기록이 없습니다." />
+              ) : (
+                <div style={styles.chartWrap}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={stdChartData} margin={{ top: 8, right: 12, left: 0, bottom: 18 }} barGap={6} barCategoryGap="24%">
+                      <CartesianGrid stroke={portalTheme.colors.lineStrong} strokeDasharray="3 3" />
+                      <XAxis dataKey="category" tick={{ fontSize: 11, fill: portalTheme.colors.textPrimary, fontWeight: 800 }} interval={0} height={42} tickLine={false} axisLine={{ stroke: portalTheme.colors.lineStrong }} />
+                      <YAxis tick={{ fontSize: 12, fill: portalTheme.colors.textMuted }} />
+                      <Tooltip cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} content={<GroupedSeriesTooltip titleLabel="과목" />} />
+                      <Legend wrapperStyle={legendStyle} />
+                      {stdSeries.map((series) => (
+                        <Bar key={series.key} dataKey={series.key} name={series.label} fill={series.color} radius={[6, 6, 0, 0]} maxBarSize={24} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+            <div style={styles.chartPanel}>
+              <h4 style={styles.chartPanelTitle}>백분위 추이</h4>
+              <p style={styles.chartPanelHint}>과목별로 각 시험 회차의 백분위를 빠르게 비교합니다.</p>
+              {pctSeries.length === 0 ? (
+                <EmptyState title="백분위 데이터가 없습니다" description="표시할 백분위 기록이 없습니다." />
+              ) : (
+                <div style={styles.chartWrap}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={pctChartData} margin={{ top: 8, right: 12, left: 0, bottom: 18 }} barGap={6} barCategoryGap="24%">
+                      <CartesianGrid stroke={portalTheme.colors.lineStrong} strokeDasharray="3 3" />
+                      <XAxis dataKey="category" tick={{ fontSize: 11, fill: portalTheme.colors.textPrimary, fontWeight: 800 }} interval={0} height={42} tickLine={false} axisLine={{ stroke: portalTheme.colors.lineStrong }} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: portalTheme.colors.textMuted }} />
+                      <Tooltip cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} content={<GroupedSeriesTooltip titleLabel="과목" />} />
+                      <Legend wrapperStyle={legendStyle} />
+                      {pctSeries.map((series) => (
+                        <Bar key={series.key} dataKey={series.key} name={series.label} fill={series.color} radius={[6, 6, 0, 0]} maxBarSize={24} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -380,24 +433,22 @@ export function StudentDetailPanel({
 
       <div style={styles.section}>
         <h3 style={styles.sectionTitle}>실기 추이</h3>
-        {physicalChartData.length === 0 ? (
+        <p style={styles.sectionHint}>대표 종목 6개를 가로축에 고정하고, 측정 회차를 색상으로 분리해서 종목별 추이를 더 직관적으로 보이게 정리했습니다.</p>
+        {physicalSeries.length === 0 ? (
           <EmptyState title="실기 데이터가 없습니다" description="저장된 실기 기록이 없습니다." />
         ) : (
           <div style={styles.chartCard}>
             <div style={styles.chartWrap}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={physicalChartData} margin={{ top: 8, right: 12, left: 0, bottom: 12 }} barGap={4} barCategoryGap={16}>
+                <BarChart data={physicalGroupedChartData} margin={{ top: 8, right: 12, left: 0, bottom: 18 }} barGap={6} barCategoryGap="24%">
                   <CartesianGrid stroke={portalTheme.colors.lineStrong} strokeDasharray="3 3" />
-                  <XAxis dataKey="short_label" tick={{ fontSize: 11, fill: portalTheme.colors.textPrimary, fontWeight: 700 }} interval={0} angle={0} textAnchor="middle" height={40} tickLine={false} axisLine={{ stroke: portalTheme.colors.lineStrong }} />
+                  <XAxis dataKey="category" tick={{ fontSize: 11, fill: portalTheme.colors.textPrimary, fontWeight: 800 }} interval={0} height={42} tickLine={false} axisLine={{ stroke: portalTheme.colors.lineStrong }} />
                   <YAxis tick={{ fontSize: 12, fill: portalTheme.colors.textMuted }} />
-                  <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} itemStyle={tooltipItemStyle} cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} />
+                  <Tooltip cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} content={<PhysicalTrendTooltip />} />
                   <Legend wrapperStyle={legendStyle} />
-                  <Bar dataKey="back_strength" name="배근력" fill={portalTheme.chart[0]} radius={[6, 6, 0, 0]} maxBarSize={16} />
-                  <Bar dataKey="run_10m" name="10m" fill={portalTheme.chart[1]} radius={[6, 6, 0, 0]} maxBarSize={16} />
-                  <Bar dataKey="medicine_ball" name="메디신볼" fill={portalTheme.chart[3]} radius={[6, 6, 0, 0]} maxBarSize={16} />
-                  <Bar dataKey="sit_reach" name="좌전굴" fill={portalTheme.chart[4]} radius={[6, 6, 0, 0]} maxBarSize={16} />
-                  <Bar dataKey="standing_jump" name="제자리멀리뛰기" fill={portalTheme.chart[2]} radius={[6, 6, 0, 0]} maxBarSize={16} />
-                  <Bar dataKey="run_20m" name="20m왕복달리기" fill={portalTheme.chart[5]} radius={[6, 6, 0, 0]} maxBarSize={16} />
+                  {physicalSeries.map((series) => (
+                    <Bar key={series.key} dataKey={series.key} name={series.label} fill={series.color} radius={[6, 6, 0, 0]} maxBarSize={26} />
+                  ))}
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -405,21 +456,23 @@ export function StudentDetailPanel({
         )}
       </div>
 
-      <div style={styles.actionButtons}>
-        <button style={styles.detailButton} onClick={onShowDetail}>
-          상세보기
-        </button>
-        {canManage ? (
-          <>
-            <button style={styles.editButton} onClick={onEdit}>
-              수정
-            </button>
-            <button style={styles.deleteButton} onClick={onDelete}>
-              삭제
-            </button>
-          </>
-        ) : null}
-      </div>
+      {showActions ? (
+        <div style={styles.actionButtons}>
+          <button style={styles.detailButton} onClick={onShowDetail}>
+            상세보기
+          </button>
+          {canManage ? (
+            <>
+              <button style={styles.editButton} onClick={onEdit}>
+                수정
+              </button>
+              <button style={styles.deleteButton} onClick={onDelete}>
+                삭제
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -427,7 +480,8 @@ export function StudentDetailPanel({
 const legendStyle = {
   fontSize: 12,
   color: portalTheme.colors.textPrimary,
-  paddingTop: 4,
+  paddingTop: 10,
+  lineHeight: "20px",
 };
 
 const tooltipContentStyle = {
@@ -445,3 +499,157 @@ const tooltipLabelStyle = {
 const tooltipItemStyle = {
   color: portalTheme.colors.textPrimary,
 };
+
+function GroupedSeriesTooltip({
+  active,
+  payload,
+  titleLabel,
+}: {
+  active?: boolean;
+  payload?: Array<{ name?: string; value?: number | string; color?: string; payload?: Record<string, unknown> }>;
+  titleLabel: string;
+}) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  const source = payload[0]?.payload ?? {};
+  const title = String(source.category ?? "").trim() || "-";
+
+  return (
+    <div style={tooltipContentStyle}>
+      <div style={{ padding: "12px 14px 10px 14px" }}>
+        <div style={{ ...tooltipLabelStyle, marginBottom: "8px" }}>{titleLabel} {title}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+          {payload.map((item) => (
+            <div key={item.name} style={{ ...tooltipItemStyle, display: "flex", alignItems: "center", gap: "8px", fontSize: 12 }}>
+              <span style={{ width: "8px", height: "8px", borderRadius: "999px", background: item.color || portalTheme.colors.primary }} />
+              <span style={{ minWidth: "48px", fontWeight: 700 }}>{item.name}</span>
+              <span>{String(item.value ?? "-")}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PhysicalTrendTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    name?: string;
+    value?: number | string;
+    color?: string;
+    dataKey?: string;
+    payload?: Record<string, unknown>;
+  }>;
+}) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  const source = payload[0]?.payload ?? {};
+  const title = String(source.category ?? "").trim() || "-";
+  const metricKey = String(source.metricKey ?? "").trim();
+
+  return (
+    <div style={tooltipContentStyle}>
+      <div style={{ padding: "12px 14px 10px 14px" }}>
+        <div style={{ ...tooltipLabelStyle, marginBottom: "8px" }}>종목 {title}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          {payload.map((item) => {
+            const dataKey = String(item.dataKey ?? "").trim();
+            const recordValue = String(source[`${dataKey}__record`] ?? "").trim();
+            const formattedRecord = formatPhysicalRecord(metricKey, recordValue);
+
+            return (
+              <div key={item.name} style={{ ...tooltipItemStyle, display: "flex", alignItems: "flex-start", gap: "8px", fontSize: 12 }}>
+                <span style={{ width: "8px", height: "8px", borderRadius: "999px", background: item.color || portalTheme.colors.primary, marginTop: "4px", flexShrink: 0 }} />
+                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                  <span style={{ fontWeight: 700 }}>{item.name}</span>
+                  <span>기록 {formattedRecord}</span>
+                  <span style={{ color: portalTheme.colors.textMuted }}>점수 {String(item.value ?? "-")}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getSeriesColor(index: number) {
+  const palette = [
+    ...portalTheme.chart,
+    "#0ea5e9",
+    "#f97316",
+    "#14b8a6",
+    "#e11d48",
+  ];
+
+  return palette[index % palette.length];
+}
+
+function buildShortMockSeriesLabel(examName: string, examDate: string) {
+  const normalizedName = String(examName || "").trim();
+
+  if (normalizedName.includes("수능")) {
+    return "수능";
+  }
+
+  return formatCompactDate(examDate) || normalizedName || "시험";
+}
+
+function buildShortPhysicalSeriesLabel(testDate: string) {
+  return formatCompactDate(testDate) || "실기측정";
+}
+
+function formatCompactDate(value: string) {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    return "";
+  }
+
+  const matched = raw.match(/^(\d{4})[-./]?(\d{1,2})/);
+
+  if (matched) {
+    return `${matched[1].slice(2)}년${Number(matched[2])}월`;
+  }
+
+  return raw;
+}
+
+function formatPhysicalRecord(metricKey: string, rawValue: string) {
+  const value = String(rawValue || "").trim();
+
+  if (!value) {
+    return "-";
+  }
+
+  if (metricKey === "back_strength") {
+    return `${value}kg`;
+  }
+
+  if (metricKey === "run_10m" || metricKey === "run_20m") {
+    return `${value}초`;
+  }
+
+  if (metricKey === "standing_jump") {
+    const numericValue = Number(value);
+
+    if (Number.isFinite(numericValue)) {
+      return `${(numericValue / 100).toFixed(2)}m`;
+    }
+  }
+
+  if (metricKey === "medicine_ball" || metricKey === "sit_reach") {
+    return `${value}cm`;
+  }
+
+  return value;
+}

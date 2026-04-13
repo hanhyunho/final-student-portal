@@ -1,6 +1,11 @@
-import type { Branch, Student } from "@/lib/dataService";
+import type { Branch, MockScore, PhysicalRecord, Student } from "@/lib/dataService";
 import {
+  getAccountsSheet,
   getBranchesSheet,
+  getMockExamsSheet,
+  getMockScoresSheet,
+  getPhysicalRecordsSheet,
+  getPhysicalTestsSheet,
   getStudentsSheet,
 } from "@/lib/sheets";
 
@@ -26,6 +31,20 @@ function normalizeCompareText(value: unknown) {
 
 function normalizeBranchToken(value: unknown) {
   return s(value).toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeLoginStatus(value: unknown) {
+  const normalized = s(value).toLowerCase();
+
+  if (!normalized) {
+    return "active";
+  }
+
+  if (["false", "inactive", "0", "n", "no"].includes(normalized)) {
+    return "inactive";
+  }
+
+  return "active";
 }
 
 function normalizeBranch(branch: Branch): Branch {
@@ -101,6 +120,26 @@ function normalizeBranchScopedRows<T extends { branch_id?: string }>(rows: T[], 
   });
 }
 
+function joinStudentLoginStatus<T extends Student>(students: T[], accounts: Array<Record<string, unknown>>) {
+  const loginStatusByStudentId = new Map<string, string>();
+
+  accounts.forEach((account) => {
+    const role = s(account.role).toLowerCase();
+    const studentId = s(account.student_id);
+
+    if (role !== "student" || !studentId || loginStatusByStudentId.has(studentId)) {
+      return;
+    }
+
+    loginStatusByStudentId.set(studentId, normalizeLoginStatus(account.is_active));
+  });
+
+  return students.map((student) => ({
+    ...student,
+    login_status: loginStatusByStudentId.get(s(student.student_id)) || "active",
+  }));
+}
+
 function filterByBranchId<T extends { branch_id?: string }>(rows: T[], branchId: string) {
   if (!branchId) {
     return [];
@@ -115,6 +154,22 @@ function filterByStudentId<T extends { student_id?: string }>(rows: T[], student
   }
 
   return rows.filter((row) => s(row.student_id) === studentId);
+}
+
+function filterStudentScopedRows<T extends { branch_id?: string; student_id?: string }>(rows: T[], branchId: string, studentId: string) {
+  const studentMatchedRows = filterByStudentId(rows, studentId);
+
+  if (!branchId) {
+    return studentMatchedRows;
+  }
+
+  const branchMatchedRows = rows.filter((row) => s(row.student_id) === studentId && s(row.branch_id) === branchId);
+
+  if (branchMatchedRows.length > 0) {
+    return branchMatchedRows;
+  }
+
+  return studentMatchedRows;
 }
 
 function filterBranchesForStudent(branches: Branch[], students: Student[], fallbackBranchId: string) {
@@ -178,13 +233,20 @@ export async function GET(request: Request) {
     const loginId = s(searchParams.get("login_id"));
     const accountName = s(searchParams.get("account_name"));
 
-    const [branchRows, studentRows] = await Promise.all([
+    const [branchRows, accountRows, studentRows, mockExams, mockScoreRows, physicalTests, physicalRecordRows] = await Promise.all([
       getBranchesSheet(),
+      getAccountsSheet(),
       getStudentsSheet(),
+      getMockExamsSheet(),
+      getMockScoresSheet(),
+      getPhysicalTestsSheet(),
+      getPhysicalRecordsSheet(),
     ]);
     const branches = normalizeBranches(branchRows);
     const branchId = resolveBranchId(branches, branchToken);
-    const students = normalizeBranchScopedRows<Student>(studentRows, branches);
+    const students = joinStudentLoginStatus(normalizeBranchScopedRows<Student>(studentRows, branches), accountRows);
+    const normalizedMockScores = normalizeBranchScopedRows<MockScore>(mockScoreRows as MockScore[], branches);
+    const normalizedPhysicalRecords = normalizeBranchScopedRows<PhysicalRecord>(physicalRecordRows as PhysicalRecord[], branches);
 
     if (role === "super_admin") {
       return Response.json({
@@ -192,6 +254,10 @@ export async function GET(request: Request) {
         success: true,
         branches,
         students,
+        mockExams,
+        mockScores: normalizedMockScores,
+        physicalTests,
+        physicalRecords: normalizedPhysicalRecords,
       });
     }
 
@@ -204,6 +270,10 @@ export async function GET(request: Request) {
         success: true,
         branches: scopedBranches,
         students: scopedStudents,
+        mockExams,
+        mockScores: filterByBranchId(normalizedMockScores, branchId),
+        physicalTests,
+        physicalRecords: filterByBranchId(normalizedPhysicalRecords, branchId),
       });
     }
 
@@ -222,6 +292,10 @@ export async function GET(request: Request) {
         success: true,
         branches: scopedBranches,
         students: scopedStudents,
+        mockExams,
+        mockScores: filterStudentScopedRows(normalizedMockScores, branchId, s(matchedStudent?.student_id) || studentId),
+        physicalTests,
+        physicalRecords: filterStudentScopedRows(normalizedPhysicalRecords, branchId, s(matchedStudent?.student_id) || studentId),
       });
     }
 
@@ -230,6 +304,10 @@ export async function GET(request: Request) {
       success: true,
       branches: [],
       students: [],
+      mockExams: [],
+      mockScores: [],
+      physicalTests: [],
+      physicalRecords: [],
     });
   } catch (error: unknown) {
     return Response.json(
@@ -239,6 +317,10 @@ export async function GET(request: Request) {
         error: error instanceof Error ? error.message : String(error),
         branches: [],
         students: [],
+        mockExams: [],
+        mockScores: [],
+        physicalTests: [],
+        physicalRecords: [],
       },
       { status: 500 }
     );

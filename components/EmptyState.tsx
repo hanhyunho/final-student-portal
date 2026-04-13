@@ -4,15 +4,20 @@ import { portalTheme } from "@/lib/theme";
 interface EmptyStateProps {
   title: string;
   description?: string;
+  tone?: {
+    background?: string;
+    borderColor?: string;
+    accentColor?: string;
+  };
 }
 
-export function EmptyState({ title, description }: EmptyStateProps) {
+export function EmptyState({ title, description, tone }: EmptyStateProps) {
   return (
     <div
       style={{
-        background: portalTheme.gradients.cardTint,
-        border: `1px dashed ${portalTheme.colors.lineStrong}`,
-        borderLeft: `4px solid ${portalTheme.colors.primary}`,
+        background: tone?.background || portalTheme.gradients.cardTint,
+        border: `1px dashed ${tone?.borderColor || portalTheme.colors.lineStrong}`,
+        borderLeft: `4px solid ${tone?.accentColor || portalTheme.colors.primary}`,
         borderRadius: portalTheme.radius.md,
         padding: "28px 24px",
         textAlign: "center",

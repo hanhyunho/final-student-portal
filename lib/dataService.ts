@@ -51,6 +51,7 @@ export type Student = {
   run_20m?: string;
   physical_total_score?: string;
   physical_memo?: string;
+  login_status?: string;
   created_at?: string;
   updated_at?: string;
 };
@@ -178,11 +179,14 @@ export type StudentMockChartPoint = {
   label: string;
   exam_name: string;
   exam_date: string;
-  korean: number;
-  math: number;
-  english: number;
-  inquiry1: number;
-  inquiry2: number;
+  korean_std: number;
+  math_std: number;
+  inquiry1_std: number;
+  inquiry2_std: number;
+  korean_pct: number;
+  math_pct: number;
+  inquiry1_pct: number;
+  inquiry2_pct: number;
 };
 
 export type StudentPhysicalChartPoint = {
@@ -198,6 +202,12 @@ export type StudentPhysicalChartPoint = {
   sit_reach: number;
   standing_jump: number;
   run_20m: number;
+  back_strength_record: string;
+  run_10m_record: string;
+  medicine_ball_record: string;
+  sit_reach_record: string;
+  standing_jump_record: string;
+  run_20m_record: string;
   back_strength_score: number;
   run_10m_score: number;
   medicine_ball_score: number;
@@ -347,11 +357,6 @@ export function getStudentMockChartData({
     })
     .map((score) => {
       const exam = examsById.get(s(score.exam_id));
-      const korean = getNumericValue(score.korean_raw);
-      const math = getNumericValue(score.math_raw);
-      const english = getNumericValue(score.english_raw);
-      const inquiry1 = getNumericValue(score.inquiry1_raw);
-      const inquiry2 = getNumericValue(score.inquiry2_raw);
       const examDate = s(exam?.exam_date);
 
       return {
@@ -359,11 +364,14 @@ export function getStudentMockChartData({
         label: buildCompactMonthLabel(examDate),
         exam_name: s(exam?.exam_name) || s(score.exam_id),
         exam_date: examDate,
-        korean,
-        math,
-        english,
-        inquiry1,
-        inquiry2,
+        korean_std: getNumericValue(score.korean_std),
+        math_std: getNumericValue(score.math_std),
+        inquiry1_std: getNumericValue(score.inquiry1_std),
+        inquiry2_std: getNumericValue(score.inquiry2_std),
+        korean_pct: getNumericValue(score.korean_pct),
+        math_pct: getNumericValue(score.math_pct),
+        inquiry1_pct: getNumericValue(score.inquiry1_pct),
+        inquiry2_pct: getNumericValue(score.inquiry2_pct),
       };
     });
 
@@ -416,6 +424,12 @@ export function getStudentPhysicalChartData({
         sit_reach: getNumericValue(record.sit_reach_score),
         standing_jump: getNumericValue(record.standing_jump_score),
         run_20m: getNumericValue(record.run_20m_score),
+        back_strength_record: s(record.back_strength_value),
+        run_10m_record: s(record.run_10m_value),
+        medicine_ball_record: s(record.medicine_ball_value),
+        sit_reach_record: s(record.sit_reach_value),
+        standing_jump_record: s(record.standing_jump_value),
+        run_20m_record: s(record.run_20m_value),
         back_strength_score: getNumericValue(record.back_strength_score),
         run_10m_score: getNumericValue(record.run_10m_score),
         medicine_ball_score: getNumericValue(record.medicine_ball_score),

@@ -36,10 +36,7 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(225, 29, 72, 0.08) 0%, rgba(225, 29, 72, 0) 26%),
-    radial-gradient(circle at top right, rgba(37, 99, 235, 0.06) 0%, rgba(37, 99, 235, 0) 24%),
-    linear-gradient(180deg, #f5f7fa 0%, #eef2f7 100%);
+  background: linear-gradient(180deg, #f7f9fc 0%, #edf2f7 100%);
   color: var(--foreground);
   font-family: var(--font-geist-sans), "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -47,11 +44,36 @@ body {
 }
 
 body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.12) 34%, rgba(255, 255, 255, 0) 100%);
+  content: none;
+}
+
+.top-nav-solid {
+  background: #0f172a !important;
+  background-image: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+.top-nav-solid::before,
+.top-nav-solid::after,
+.top-intro-clean::before,
+.top-intro-clean::after {
+  content: none !important;
+  display: none !important;
+  background: none !important;
+  background-image: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+.top-intro-clean {
+  background: #ffffff !important;
+  background-image: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  opacity: 1 !important;
 }
 
 a {

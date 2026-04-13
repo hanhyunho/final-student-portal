@@ -6,6 +6,7 @@ export const APPS_SCRIPT_URL =
 
 export const APPS_SCRIPT_ACTIONS = {
   saveStudent: "saveStudent",
+  saveAccountStatus: "saveAccountStatus",
   saveMockScore: "saveMockScore",
   savePhysicalRecord: "savePhysicalRecord",
 } as const;
@@ -181,6 +182,35 @@ export async function saveStudent(row: Student | Record<string, unknown>) {
 
     throw new Error(failureResult.error);
   }
+}
+
+export async function saveAccountStatus(row: Record<string, unknown>) {
+  const requestBody = {
+    action: APPS_SCRIPT_ACTIONS.saveAccountStatus,
+    row: normalizeRow(row),
+  };
+
+  const response = await fetch("/api/accounts", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-cache",
+    },
+    body: JSON.stringify(requestBody),
+    cache: "no-store",
+  });
+
+  const { parsedResult } = await parseAppsScriptResponse<Record<string, unknown>>(response);
+
+  if (parsedResult.success === true || parsedResult.ok === true) {
+    return parsedResult;
+  }
+
+  throw new Error(
+    parsedResult.error ||
+      parsedResult.message ||
+      `계정 로그인여부를 저장하지 못했습니다. (status: ${response.status})`
+  );
 }
 
 export async function saveMockScore(row: MockScore | Record<string, unknown>) {

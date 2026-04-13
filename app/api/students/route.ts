@@ -303,6 +303,7 @@ function buildSaveSuccessResponse(result: RouteResult) {
       ok: true,
       success: true,
       data: result?.data ?? result?.row ?? result,
+      account: result?.account ?? null,
       mode: result?.mode ?? null,
       rowIndex: result?.rowIndex ?? null,
       message: result?.message ?? "저장 완료",
