@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React from "react";
+import React, { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { portalLayout } from "@/lib/theme";
 
@@ -58,13 +58,40 @@ const menuSections: Array<{ label: string; items: MenuItem[] }> = [
 interface AdminHeaderProps {
   isSuperAdmin?: boolean;
   actions?: React.ReactNode;
+  fallbackActiveKey?: AdminNavKey;
 }
 
-export function AdminHeader({ isSuperAdmin = false, actions = null }: AdminHeaderProps) {
+type AdminHeaderShellProps = {
+  isSuperAdmin: boolean;
+  actions: React.ReactNode;
+  activeKey: AdminNavKey;
+};
+
+export function AdminHeader({ isSuperAdmin = false, actions = null, fallbackActiveKey = "student-management" }: AdminHeaderProps) {
+  return (
+    <Suspense
+      fallback={
+        <AdminHeaderShell
+          isSuperAdmin={isSuperAdmin}
+          actions={actions}
+          activeKey={fallbackActiveKey}
+        />
+      }
+    >
+      <AdminHeaderContent isSuperAdmin={isSuperAdmin} actions={actions} />
+    </Suspense>
+  );
+}
+
+function AdminHeaderContent({ isSuperAdmin = false, actions = null }: AdminHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activeKey = resolveActiveKey(pathname, searchParams.get("view"));
 
+  return <AdminHeaderShell isSuperAdmin={isSuperAdmin} actions={actions} activeKey={activeKey} />;
+}
+
+function AdminHeaderShell({ isSuperAdmin, actions, activeKey }: AdminHeaderShellProps) {
   return (
     <header style={styles.shell}>
       <div style={styles.topRow}>

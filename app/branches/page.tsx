@@ -179,6 +179,8 @@ function removeBranchFromList(branches: Branch[], branchId: string) {
 export default function BranchesPage() {
   const branchesSnapshot = usePortalSharedBranches();
   const studentsSnapshot = usePortalSharedStudents();
+  const safeBranchesSnapshot = Array.isArray(branchesSnapshot) ? branchesSnapshot : [];
+  const safeStudentsSnapshot = Array.isArray(studentsSnapshot) ? studentsSnapshot : [];
   const timerRef = useRef<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
@@ -209,7 +211,7 @@ export default function BranchesPage() {
 
   const branches = useMemo(
     () => {
-      const normalizedStoreBranches = branchesSnapshot.map(normalizeBranch);
+      const normalizedStoreBranches = safeBranchesSnapshot.map(normalizeBranch);
 
       if (branchSource === "store" && normalizedStoreBranches.length > 0) {
         return normalizedStoreBranches;
@@ -221,16 +223,16 @@ export default function BranchesPage() {
 
       return fallbackBranches.map(normalizeBranch);
     },
-    [branchSource, branchesSnapshot, fallbackBranches, hasFetchedBranches]
+    [branchSource, fallbackBranches, hasFetchedBranches, safeBranchesSnapshot]
   );
 
   const studentCounts = useMemo(
-    () => countStudentsByBranch(studentsSnapshot),
-    [studentsSnapshot]
+    () => countStudentsByBranch(safeStudentsSnapshot),
+    [safeStudentsSnapshot]
   );
 
   useEffect(() => {
-    if (branchesSnapshot.length > 0 && branchSource === "store") {
+    if (safeBranchesSnapshot.length > 0 && branchSource === "store") {
       return;
     }
 
@@ -278,7 +280,7 @@ export default function BranchesPage() {
     return () => {
       cancelled = true;
     };
-  }, [branchSource, branchesSnapshot.length, hasFetchedBranches, showMessage]);
+  }, [branchSource, hasFetchedBranches, safeBranchesSnapshot.length, showMessage]);
 
   const openAddModal = useCallback(() => {
     setEditingBranch(null);
@@ -358,7 +360,7 @@ export default function BranchesPage() {
   return (
     <main style={styles.page}>
       <div style={styles.container}>
-        <AdminHeader isSuperAdmin />
+        <AdminHeader isSuperAdmin fallbackActiveKey="branch-management" />
 
         <header style={styles.header}>
           <div>

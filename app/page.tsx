@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createRoot } from "react-dom/client";
 import { saveMockScore, savePhysicalRecord, saveStudent } from "@/lib/api";
@@ -972,6 +972,14 @@ function buildPortalScopeKey(account: Account | null) {
 }
 
 export default function Home() {
+  return (
+    <Suspense fallback={<HomeLoadingShell />}>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
   const searchParams = useSearchParams();
   const sharedPortalState = usePortalSharedStore();
   const initRef = useRef(false);
@@ -2662,6 +2670,21 @@ export default function Home() {
   );
 }
 
+function HomeLoadingShell() {
+  return (
+    <main style={styles.page}>
+      <div style={styles.container}>
+        <AdminHeader isSuperAdmin fallbackActiveKey="student-management" />
+        <div style={styles.loadingFallbackCard}>
+          <p style={styles.loadingFallbackEyebrow}>FINAL 관리자 시스템</p>
+          <h2 style={styles.loadingFallbackTitle}>페이지를 준비하는 중입니다.</h2>
+          <p style={styles.loadingFallbackBody}>클라이언트 상태를 확인한 뒤 학생 관리 화면을 불러옵니다.</p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 const styles: { [key: string]: React.CSSProperties } = {
   page: {
     minHeight: "100vh",
@@ -2672,6 +2695,36 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: {
     maxWidth: portalLayout.containerMaxWidth,
     margin: "0 auto",
+  },
+  loadingFallbackCard: {
+    padding: portalLayout.cardPadding,
+    borderRadius: "24px",
+    background: portalTheme.gradients.card,
+    border: `1px solid ${portalTheme.colors.line}`,
+    boxShadow: portalTheme.shadows.panel,
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+  loadingFallbackEyebrow: {
+    margin: 0,
+    color: portalTheme.colors.primary,
+    fontSize: "12px",
+    fontWeight: 800,
+    letterSpacing: "0.12em",
+  },
+  loadingFallbackTitle: {
+    margin: 0,
+    color: portalTheme.colors.textStrong,
+    fontSize: "clamp(28px, 4vw, 40px)",
+    fontWeight: 900,
+    letterSpacing: "-0.04em",
+  },
+  loadingFallbackBody: {
+    margin: 0,
+    color: portalTheme.colors.textMuted,
+    fontSize: "15px",
+    lineHeight: 1.7,
   },
   studentViewWrap: {
     display: "grid",
