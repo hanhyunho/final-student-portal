@@ -1,18 +1,19 @@
 import React from "react";
-import { AdminHeader } from "@/components/AdminHeader";
+import { AdminHeader, type AdminNavKey } from "@/components/AdminHeader";
 import { portalTheme } from "@/lib/theme";
 
 interface AdminPlaceholderPageProps {
   title: string;
   subtitle: string;
   accent: string;
+  headerActiveKey: AdminNavKey;
 }
 
-export function AdminPlaceholderPage({ title, subtitle, accent }: AdminPlaceholderPageProps) {
+export function AdminPlaceholderPage({ title, subtitle, accent, headerActiveKey }: AdminPlaceholderPageProps) {
   return (
     <main style={styles.page}>
       <div style={styles.container}>
-        <AdminHeader />
+        <AdminHeader isSuperAdmin fallbackActiveKey={headerActiveKey} />
 
         <section style={{ ...styles.hero, borderLeft: `6px solid ${accent}` }}>
           <div>

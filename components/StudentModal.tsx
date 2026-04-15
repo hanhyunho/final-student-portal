@@ -3,12 +3,14 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Student, Branch, MockExam, PhysicalTest, PhysicalRecord } from "@/lib/dataService";
+import { EXAM_LABELS, EXAM_SAVE_GROUPS, getCanonicalExamId, hasExamSaved, resolveExamSaveGroup } from "@/lib/examSaveState";
 import classes from "./StudentModal.module.css";
 
 interface StudentModalProps {
   isOpen: boolean;
   mode: "add" | "edit";
   student: Student | null;
+  initialExamId?: string | null;
   initialLoginStatus?: string;
   branches: Branch[];
   mockExams: MockExam[];
@@ -97,6 +99,13 @@ const emptyForm: Student = {
 
 function s(value: unknown) {
   return String(value ?? "");
+}
+
+function normalizeSubjectName(raw: unknown) {
+  const v = s(raw).trim();
+  return v
+    .replace(/^국어\(([^)]+)\)$/, "$1")
+    .replace(/^수학\(([^)]+)\)$/, "$1");
 }
 
 function buildPhysicalTestLabel(test: PhysicalTest) {
@@ -189,17 +198,17 @@ const emptyPhysicalForm = {
   run_20m_value: "",
 };
 
-const fallbackMockExams: MockExam[] = [
-  { exam_id: "3mo", exam_name: "3모", exam_date: "" },
-  { exam_id: "6mo", exam_name: "6모", exam_date: "" },
-  { exam_id: "9mo", exam_name: "9모", exam_date: "" },
-  { exam_id: "suneung", exam_name: "수능", exam_date: "" },
-];
+const fallbackMockExams: MockExam[] = EXAM_SAVE_GROUPS.map((group) => ({
+  exam_id: getCanonicalExamId(group),
+  exam_name: EXAM_LABELS[group],
+  exam_date: "",
+}));
 
 export function StudentModal({
   isOpen,
   mode,
   student,
+  initialExamId = null,
   initialLoginStatus = "active",
   branches,
   mockExams,
@@ -224,6 +233,7 @@ export function StudentModal({
   const [saveNotice, setSaveNotice] = useState<SaveNotice | null>(null);
   const leftPanelRef = useRef<HTMLDivElement | null>(null);
   const examScrollPositionsRef = useRef<Record<string, number>>({});
+  const saveNoticeTimeoutRef = useRef<number | null>(null);
 
   const examOptions = useMemo(() => {
     const source = mockExams.length > 0 ? mockExams : fallbackMockExams;
@@ -265,6 +275,22 @@ export function StudentModal({
   const getResolvedExamId = useCallback((examId: string) => {
     return examAliasMap[examId] || examId;
   }, [examAliasMap]);
+
+  const clearSaveNoticeTimer = useCallback(() => {
+    if (saveNoticeTimeoutRef.current !== null) {
+      window.clearTimeout(saveNoticeTimeoutRef.current);
+      saveNoticeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const showTransientSaveSuccess = useCallback((message: string) => {
+    clearSaveNoticeTimer();
+    setSaveNotice({ type: "success", message });
+    saveNoticeTimeoutRef.current = window.setTimeout(() => {
+      setSaveNotice((previous) => (previous?.type === "success" ? null : previous));
+      saveNoticeTimeoutRef.current = null;
+    }, 2500);
+  }, [clearSaveNoticeTimer]);
 
   const getCurrentStudentId = useCallback(() => {
     return s(student?.student_id || form.student_id);
@@ -617,15 +643,25 @@ export function StudentModal({
         }
       : scores;
 
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[StudentModal] loadExamScores", {
+        student_id: studentId,
+        requestedExamId: examId,
+        resolvedExamId,
+        scores,
+        nextScores,
+      });
+    }
+
     setForm(prev => ({
       ...prev,
       exam_id: resolvedExamId,
-      korean_name: s(nextScores.korean_name),
+      korean_name: normalizeSubjectName(nextScores.korean_name),
       korean_raw: s(nextScores.korean_raw),
       korean_std: s(nextScores.korean_std),
       korean_pct: s(nextScores.korean_pct),
       korean_grade: s(nextScores.korean_grade),
-      math_name: s(nextScores.math_name),
+      math_name: normalizeSubjectName(nextScores.math_name),
       math_raw: s(nextScores.math_raw),
       math_std: s(nextScores.math_std),
       math_pct: s(nextScores.math_pct),
@@ -649,7 +685,8 @@ export function StudentModal({
 
   // Handle exam change with warning for unsaved changes
   const handleExamChange = useCallback((newExamId: string) => {
-    if (newExamId === currentExamId) return;
+    const resolvedExamId = getResolvedExamId(newExamId);
+    if (resolvedExamId === currentExamId) return;
 
     if (hasUnsavedExamChanges && currentExamId) {
       const confirmed = window.confirm(
@@ -672,10 +709,22 @@ export function StudentModal({
       }));
     }
 
-    setCurrentExamId(newExamId);
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[StudentModal] handleExamChange", {
+        student_id: s(student?.student_id || form.student_id).trim(),
+        previousExamId: currentExamId,
+        nextExamId: resolvedExamId,
+      });
+    }
+
+    setCurrentExamId(resolvedExamId);
+    setForm((prev) => ({
+      ...prev,
+      exam_id: resolvedExamId,
+    }));
     setHasUnsavedExamChanges(false);
-    loadExamScores(newExamId);
-  }, [currentExamId, hasUnsavedExamChanges, form, examScores, loadExamScores, saveExamScrollPosition]);
+    loadExamScores(resolvedExamId);
+  }, [currentExamId, form, getResolvedExamId, hasUnsavedExamChanges, loadExamScores, saveExamScrollPosition, student]);
 
   const handleExamSelect = useCallback((examId: string) => {
     handleExamChange(getResolvedExamId(examId));
@@ -699,9 +748,13 @@ export function StudentModal({
   // Helper to check if an exam has any entered data
   const hasExamData = (examId: string): boolean => {
     const resolvedExamId = getResolvedExamId(examId);
-    if (!examScores[resolvedExamId]) return false;
-    const scores = examScores[resolvedExamId];
-    return examFieldKeys.some(key => scores[key as keyof Student]);
+    const examGroup = resolveExamSaveGroup(resolvedExamId);
+
+    if (!examGroup) {
+      return false;
+    }
+
+    return hasExamSaved({ exam_scores: examScores }, examGroup);
   };
 
   // Helper to get exam status display
@@ -767,6 +820,7 @@ export function StudentModal({
       setForm({
         ...emptyForm,
         branch_id: branches.length === 1 ? s(branches[0]?.branch_id) : "",
+        exam_id: "",
       });
       setLoginStatus("active");
       setExamScores({});
@@ -803,12 +857,12 @@ export function StudentModal({
         status: normalizeStudentStatus(student.status),
         memo: s(student.memo),
         exam_id: s(student.exam_id),
-        korean_name: s(student.korean_name),
+        korean_name: normalizeSubjectName(student.korean_name),
         korean_raw: s(student.korean_raw),
         korean_std: s(student.korean_std),
         korean_pct: s(student.korean_pct),
         korean_grade: s(student.korean_grade),
-        math_name: s(student.math_name),
+        math_name: normalizeSubjectName(student.math_name),
         math_raw: s(student.math_raw),
         math_std: s(student.math_std),
         math_pct: s(student.math_pct),
@@ -851,12 +905,12 @@ export function StudentModal({
         if (initialExamId) {
           setExamScores({
             [initialExamId]: {
-              korean_name: s(student.korean_name),
+              korean_name: normalizeSubjectName(student.korean_name),
               korean_raw: s(student.korean_raw),
               korean_std: s(student.korean_std),
               korean_pct: s(student.korean_pct),
               korean_grade: s(student.korean_grade),
-              math_name: s(student.math_name),
+              math_name: normalizeSubjectName(student.math_name),
               math_raw: s(student.math_raw),
               math_std: s(student.math_std),
               math_pct: s(student.math_pct),
@@ -880,10 +934,23 @@ export function StudentModal({
         }
       }
 
-      const initialExamId = getResolvedExamId(s(student.exam_id));
-      if (initialExamId) {
-        setCurrentExamId(initialExamId);
+      const storedExamIds = Object.keys((student as StudentWithExamScores).exam_scores || {});
+      const nextInitialExamSourceId = s(initialExamId || student.exam_id || storedExamIds[0]).trim();
+      const nextInitialExamId = getResolvedExamId(nextInitialExamSourceId);
+      if (nextInitialExamId) {
+        setCurrentExamId(nextInitialExamId);
+        setForm((prev) => ({
+          ...prev,
+          exam_id: nextInitialExamId,
+        }));
         setHasUnsavedExamChanges(false);
+        if (process.env.NODE_ENV !== "production") {
+          console.info("[StudentModal] initial exam sync", {
+            student_id: s(student.student_id).trim(),
+            initialExamId: nextInitialExamSourceId,
+            resolvedExamId: nextInitialExamId,
+          });
+        }
       }
 
       const initialPhysicalRecord = physicalRecords.find(
@@ -894,7 +961,24 @@ export function StudentModal({
       setSelectedPhysicalTestId(nextPhysicalTestId);
       loadPhysicalRecord(nextPhysicalTestId);
     }
-  }, [branches, initialLoginStatus, isOpen, loadPhysicalRecord, mode, physicalRecords, physicalTests, selectedPhysicalTestId, student]);
+  }, [branches, initialExamId, initialLoginStatus, isOpen, loadPhysicalRecord, mode, physicalRecords, physicalTests, selectedPhysicalTestId, student]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      clearSaveNoticeTimer();
+      setSaveNotice(null);
+      return;
+    }
+
+    clearSaveNoticeTimer();
+    setSaveNotice(null);
+  }, [clearSaveNoticeTimer, currentExamId, isOpen, student?.student_id]);
+
+  useEffect(() => {
+    return () => {
+      clearSaveNoticeTimer();
+    };
+  }, [clearSaveNoticeTimer]);
 
   useEffect(() => {
     if (!isOpen || !leftPanelRef.current) {
@@ -946,6 +1030,7 @@ export function StudentModal({
     }
 
     try {
+      clearSaveNoticeTimer();
       setSavingExam(true);
 
       // Save basic student info with current exam
@@ -1077,20 +1162,34 @@ export function StudentModal({
     }
 
     if (!onSaveExamScores) {
+      clearSaveNoticeTimer();
       setSaveNotice({ type: "error", message: "시험 성적만 저장하는 기능을 사용할 수 없습니다." });
       return;
     }
 
     try {
+      clearSaveNoticeTimer();
       setSavingExam(true);
       const currentStudentSnapshot = getCurrentStudentSnapshot();
 
       if (!currentStudentSnapshot.student_id) {
+        clearSaveNoticeTimer();
         setSaveNotice({ type: "error", message: "학생 기본 정보를 먼저 저장하세요." });
         return;
       }
 
       const currentExamFields = pickExamFields(form);
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[EXAM SAVE] start", {
+          student_id: currentStudentSnapshot.student_id,
+          branch_id: currentStudentSnapshot.branch_id,
+          currentExamId,
+          currentExamFields,
+          examScores,
+          hasOnSaveExamScores: !!onSaveExamScores,
+          currentStudentSnapshot,
+        });
+      }
 
       const studentWithExamScores = student as StudentWithExamScores | null;
       const existingExamScores = {
@@ -1111,11 +1210,18 @@ export function StudentModal({
       await onSaveExamScores(currentExamId, currentExamFields, currentStudentSnapshot, {
         suppressFeedback: true,
       });
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[StudentModal] handleExamSave:success", {
+          student_id: currentStudentSnapshot.student_id,
+          currentExamId,
+        });
+      }
       clearExamDraft(getDraftStudentId(), currentExamId);
       setHasUnsavedExamChanges(false);
-      setSaveNotice({ type: "success", message: "시험 성적을 저장했습니다." });
+      showTransientSaveSuccess("시험 성적을 저장했습니다.");
     } catch (error) {
       console.error("Exam save failed:", error);
+      clearSaveNoticeTimer();
       setSaveNotice({
         type: "error",
         message: error instanceof Error ? error.message : "시험 성적 저장 중 오류가 발생했습니다.",
@@ -1296,7 +1402,7 @@ export function StudentModal({
             <label style={styles.formLabel}>시험 유형 *</label>
             <select
               style={styles.formInput}
-              value={form.exam_id}
+              value={currentExamId}
               onChange={(e) => handleExamChange(e.target.value)}
             >
               <option value="">시험 유형 선택</option>
@@ -1322,8 +1428,8 @@ export function StudentModal({
                   }}
                 >
                   <option value="">선택</option>
-                  <option value="국어(화법과작문)">국어(화법과작문)</option>
-                  <option value="국어(언어와매체)">국어(언어와매체)</option>
+                  <option value="화법과작문">화법과작문</option>
+                  <option value="언어와매체">언어와매체</option>
                 </select>
               </div>
               <div style={styles.formField}>
@@ -1388,9 +1494,9 @@ export function StudentModal({
                   }}
                 >
                   <option value="">선택</option>
-                  <option value="수학(확률과통계)">수학(확률과통계)</option>
-                  <option value="수학(미적분)">수학(미적분)</option>
-                  <option value="수학(기하)">수학(기하)</option>
+                  <option value="확률과통계">확률과통계</option>
+                  <option value="미적분">미적분</option>
+                  <option value="기하">기하</option>
                 </select>
               </div>
               <div style={styles.formField}>

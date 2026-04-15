@@ -46,6 +46,7 @@ export default function SusiDataPage() {
       title="수시DATA"
       subtitle="수시 백데이터 조회 화면"
       accent="blue"
+      headerActiveKey="early-data"
       filters={[
         { label: "대학 선택", type: "select", options: ["전체 대학", "한체대", "용인대", "경희대", "성균관대"] },
         { label: "학과 선택", type: "select", options: ["전체 학과", "체육교육", "스포츠과학", "운동재활", "건강운동"] },

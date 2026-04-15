@@ -5,7 +5,7 @@ import React, { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { portalLayout } from "@/lib/theme";
 
-type AdminNavKey =
+export type AdminNavKey =
   | "student-management"
   | "branch-analysis"
   | "branch-management"

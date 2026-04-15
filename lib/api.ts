@@ -2,7 +2,7 @@ import type { MockScore, PhysicalRecord, Student } from "@/lib/dataService";
 
 export const APPS_SCRIPT_URL =
   process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
-  "https://script.google.com/macros/s/AKfycbzMiiF4k6E2VAbLxOHJ39lGrDOv9PP9YnHI7he_Y-xyFtS91E4xjkRZG1vj68BKuPnBBA/exec";
+  "https://script.google.com/macros/s/AKfycbwg7vShRN81QwHUBVHd8ZV18MOaptABerhtg-Fvqw2R1isYTl3muP0xGwOXATBEBqwHlg/exec";
 
 export const APPS_SCRIPT_ACTIONS = {
   saveStudent: "saveStudent",
@@ -214,10 +214,23 @@ export async function saveAccountStatus(row: Record<string, unknown>) {
 }
 
 export async function saveMockScore(row: MockScore | Record<string, unknown>) {
-  return saveAppsScriptRow<MockScore>({
+  const requestBody = {
     action: APPS_SCRIPT_ACTIONS.saveMockScore,
-    row,
-  });
+    row: normalizeRow(row as Record<string, unknown>),
+  };
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[SAVE REQUEST BODY]", requestBody);
+    console.log("[SAVE REQUEST TARGET]", APPS_SCRIPT_URL);
+  }
+
+  const result = await postAppsScript<MockScore>(requestBody);
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[SAVE RESPONSE]", result);
+  }
+
+  return result;
 }
 
 export async function savePhysicalRecord(row: PhysicalRecord | Record<string, unknown>) {

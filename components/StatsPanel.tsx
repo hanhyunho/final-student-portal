@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { Branch, MockExam, MockScore, PhysicalRecord, PhysicalTest, Student } from "@/lib/dataService";
 import { EmptyState } from "@/components/EmptyState";
 import { portalTheme } from "@/lib/theme";
@@ -70,41 +70,17 @@ export function StatsPanel({
   const effectiveSelectedPhysicalTestId =
     physicalTestOptions.some((option) => option.value === selectedPhysicalTestId) ? selectedPhysicalTestId : physicalTestOptions[0]?.value || "";
 
-  useEffect(() => {
-    if (effectiveSelectedScoreExamId && selectedScoreExamId !== effectiveSelectedScoreExamId) {
-      setSelectedScoreExamId(effectiveSelectedScoreExamId);
-    }
-  }, [effectiveSelectedScoreExamId, selectedScoreExamId]);
+  const effectiveSelectedScoreMetric = scoreMetricOptions.some((option) => option.value === selectedScoreMetric)
+    ? selectedScoreMetric
+    : (scoreMetricOptions[0]?.value as ScoreRankingMetric | undefined) || "five-subject-total";
 
-  useEffect(() => {
-    if (effectiveSelectedPhysicalTestId && selectedPhysicalTestId !== effectiveSelectedPhysicalTestId) {
-      setSelectedPhysicalTestId(effectiveSelectedPhysicalTestId);
-    }
-  }, [effectiveSelectedPhysicalTestId, selectedPhysicalTestId]);
+  const effectiveSelectedPhysicalGender = genderOptions.some((option) => option.value === selectedPhysicalGender)
+    ? selectedPhysicalGender
+    : (genderOptions[0]?.value as GenderFilter | undefined) || "all";
 
-  useEffect(() => {
-    const defaultScoreMetric = scoreMetricOptions[0]?.value as ScoreRankingMetric | undefined;
-
-    if (defaultScoreMetric && !scoreMetricOptions.some((option) => option.value === selectedScoreMetric)) {
-      setSelectedScoreMetric(defaultScoreMetric);
-    }
-  }, [scoreMetricOptions, selectedScoreMetric]);
-
-  useEffect(() => {
-    const defaultGender = genderOptions[0]?.value as GenderFilter | undefined;
-
-    if (defaultGender && !genderOptions.some((option) => option.value === selectedPhysicalGender)) {
-      setSelectedPhysicalGender(defaultGender);
-    }
-  }, [genderOptions, selectedPhysicalGender]);
-
-  useEffect(() => {
-    const defaultPhysicalMetric = physicalMetricOptions[0]?.value as PhysicalRankingMetric | undefined;
-
-    if (defaultPhysicalMetric && !physicalMetricOptions.some((option) => option.value === selectedPhysicalMetric)) {
-      setSelectedPhysicalMetric(defaultPhysicalMetric);
-    }
-  }, [physicalMetricOptions, selectedPhysicalMetric]);
+  const effectiveSelectedPhysicalMetric = physicalMetricOptions.some((option) => option.value === selectedPhysicalMetric)
+    ? selectedPhysicalMetric
+    : (physicalMetricOptions[0]?.value as PhysicalRankingMetric | undefined) || "total_score";
 
   const scoreRankings = useMemo(() => {
     if (!effectiveSelectedScoreExamId) {
@@ -117,9 +93,9 @@ export function StatsPanel({
       mockExams,
       mockScores,
       examId: effectiveSelectedScoreExamId,
-      metric: selectedScoreMetric,
+      metric: effectiveSelectedScoreMetric,
     });
-  }, [branches, effectiveSelectedScoreExamId, mockExams, mockScores, selectedScoreMetric, students]);
+  }, [branches, effectiveSelectedScoreExamId, effectiveSelectedScoreMetric, mockExams, mockScores, students]);
 
   const physicalRankings = useMemo(() => {
     if (!effectiveSelectedPhysicalTestId) {
@@ -132,43 +108,44 @@ export function StatsPanel({
       physicalRecords,
       physicalTests,
       testId: effectiveSelectedPhysicalTestId,
-      genderFilter: selectedPhysicalGender,
-      metric: selectedPhysicalMetric,
+      genderFilter: effectiveSelectedPhysicalGender,
+      metric: effectiveSelectedPhysicalMetric,
     });
-  }, [branches, effectiveSelectedPhysicalTestId, physicalRecords, physicalTests, selectedPhysicalGender, selectedPhysicalMetric, students]);
+  }, [branches, effectiveSelectedPhysicalGender, effectiveSelectedPhysicalMetric, effectiveSelectedPhysicalTestId, physicalRecords, physicalTests, students]);
 
   const styles: { [key: string]: React.CSSProperties } = {
     statsSection: {
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+      gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
       gap: "18px",
       marginBottom: "22px",
     },
     statsCard: {
-      borderRadius: portalTheme.radius.md,
-      padding: "clamp(16px, 2.8vw, 24px)",
+      borderRadius: "22px",
+      padding: "24px 26px",
       boxShadow: portalTheme.shadows.panel,
       border: `1px solid ${portalTheme.colors.line}`,
       display: "flex",
       flexDirection: "column",
-      gap: "16px",
+      gap: "18px",
     },
     statsTitle: {
       margin: 0,
-      fontSize: "clamp(18px, 2.2vw, 21px)",
+      fontSize: "clamp(24px, 3vw, 28px)",
       fontWeight: 900,
       color: portalTheme.colors.textStrong,
+      letterSpacing: "-0.03em",
     },
     statsDesc: {
-      margin: "6px 0 0 0",
-      fontSize: "13px",
-      lineHeight: 1.5,
+      margin: "8px 0 0 0",
+      fontSize: "14px",
+      lineHeight: 1.65,
       color: portalTheme.colors.textMuted,
       maxWidth: "58ch",
     },
     controlGrid: {
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))",
+      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
       gap: "10px",
     },
     controlWrap: {
@@ -177,18 +154,19 @@ export function StatsPanel({
       gap: "6px",
     },
     controlLabel: {
-      fontSize: "12px",
+      fontSize: "13px",
       fontWeight: 800,
-      color: portalTheme.colors.textMuted,
+      color: portalTheme.colors.textPrimary,
     },
     select: {
       width: "100%",
-      padding: "10px 12px",
+      minHeight: "40px",
+      padding: "0 12px",
       borderRadius: "12px",
       border: `1px solid ${portalTheme.colors.line}`,
       background: portalTheme.colors.surfaceCardAlt,
       color: portalTheme.colors.textStrong,
-      fontSize: "13px",
+      fontSize: "14px",
       fontWeight: 700,
       boxShadow: "none",
     },
@@ -196,6 +174,7 @@ export function StatsPanel({
       fontSize: "12px",
       color: portalTheme.colors.textSoft,
       minHeight: "16px",
+      lineHeight: 1.45,
     },
     rankingList: {
       display: "flex",
@@ -205,7 +184,7 @@ export function StatsPanel({
       overflowY: "auto",
       padding: "12px",
       paddingRight: "8px",
-      borderRadius: portalTheme.radius.md,
+      borderRadius: "18px",
       border: `1px solid ${portalTheme.colors.line}`,
     },
     rankingRow: {
@@ -213,23 +192,21 @@ export function StatsPanel({
       justifyContent: "space-between",
       alignItems: "flex-start",
       gap: "12px",
-      padding: "14px 14px",
+      padding: "14px",
       border: `1px solid ${portalTheme.colors.lineSoft}`,
       borderRadius: "14px",
-      background: "rgba(255,255,255,0.84)",
+      background: "rgba(255,255,255,0.92)",
     },
     rankingIndex: {
       minWidth: "28px",
       height: "28px",
       borderRadius: portalTheme.radius.pill,
-      background: portalTheme.colors.surfacePanelStrong,
       fontSize: "12px",
       fontWeight: 900,
       display: "inline-flex",
       alignItems: "center",
       justifyContent: "center",
       marginTop: "2px",
-      boxShadow: `inset 0 0 0 1px ${portalTheme.colors.line}`,
       color: portalTheme.colors.textStrong,
     },
     rankingBody: {
@@ -248,10 +225,10 @@ export function StatsPanel({
     rankingMeta: {
       fontSize: "12px",
       color: portalTheme.colors.textMuted,
-      lineHeight: 1.4,
+      lineHeight: 1.45,
     },
     rankingValue: {
-      minWidth: "78px",
+      minWidth: "84px",
       textAlign: "right",
       fontSize: "clamp(18px, 2.6vw, 26px)",
       fontWeight: 900,
@@ -282,11 +259,9 @@ export function StatsPanel({
       border: `1px solid ${physicalTone.line}`,
     },
     scoreRow: {
-      background: "rgba(255, 255, 255, 0.76)",
       border: `1px solid ${scoreTone.line}`,
     },
     physicalRow: {
-      background: "rgba(255, 255, 255, 0.76)",
       border: `1px solid ${physicalTone.line}`,
     },
     scoreIndex: {
@@ -307,7 +282,7 @@ export function StatsPanel({
         style={{
           ...styles.statsCard,
           background: scoreTone.panel,
-          borderLeft: "6px solid #2563eb",
+          borderLeft: "5px solid #2563eb",
         }}
       >
         <div>
@@ -336,7 +311,7 @@ export function StatsPanel({
             <span style={styles.controlLabel}>합산 기준</span>
             <select
               style={{ ...styles.select, ...styles.scoreSelect }}
-              value={selectedScoreMetric}
+              value={effectiveSelectedScoreMetric}
               onChange={(event) => setSelectedScoreMetric(event.target.value as ScoreRankingMetric)}
             >
               {scoreMetricOptions.map((option) => (
@@ -370,7 +345,7 @@ export function StatsPanel({
                   <span style={styles.rankingMeta}>{item.examLabel} · {item.metricLabel}</span>
                 </div>
                 <div style={styles.rankingValue}>
-                  {formatMetricValue(selectedScoreMetric, item.value)}
+                  {formatMetricValue(effectiveSelectedScoreMetric, item.value)}
                   <span style={styles.rankingValueLabel}>합산점수</span>
                 </div>
               </div>
@@ -383,7 +358,7 @@ export function StatsPanel({
         style={{
           ...styles.statsCard,
           background: physicalTone.panel,
-          borderLeft: "6px solid #16a34a",
+          borderLeft: "5px solid #16a34a",
         }}
       >
         <div>
@@ -412,7 +387,7 @@ export function StatsPanel({
             <span style={styles.controlLabel}>성별</span>
             <select
               style={{ ...styles.select, ...styles.physicalSelect }}
-              value={selectedPhysicalGender}
+              value={effectiveSelectedPhysicalGender}
               onChange={(event) => setSelectedPhysicalGender(event.target.value as GenderFilter)}
             >
               {genderOptions.map((option) => (
@@ -428,7 +403,7 @@ export function StatsPanel({
             <span style={styles.controlLabel}>정렬 기준</span>
             <select
               style={{ ...styles.select, ...styles.physicalSelect }}
-              value={selectedPhysicalMetric}
+              value={effectiveSelectedPhysicalMetric}
               onChange={(event) => setSelectedPhysicalMetric(event.target.value as PhysicalRankingMetric)}
             >
               {physicalMetricOptions.map((option) => (
@@ -462,7 +437,7 @@ export function StatsPanel({
                   <span style={styles.rankingMeta}>{item.genderLabel} · {item.testLabel} · {item.metricLabel}</span>
                 </div>
                 <div style={styles.rankingValue}>
-                  {formatMetricValue(selectedPhysicalMetric, item.value)}
+                  {formatMetricValue(effectiveSelectedPhysicalMetric, item.value)}
                   <span style={styles.rankingValueLabel}>{item.metricLabel}</span>
                 </div>
               </div>

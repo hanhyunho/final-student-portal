@@ -1,5 +1,5 @@
 import React from "react";
-import { AdminHeader } from "@/components/AdminHeader";
+import { AdminHeader, type AdminNavKey } from "@/components/AdminHeader";
 import { portalTheme } from "@/lib/theme";
 
 type FilterConfig = {
@@ -16,6 +16,7 @@ interface DataBrowserPageProps {
   columns: string[];
   rows: Array<Record<string, string | number>>;
   accent: "blue" | "green";
+  headerActiveKey: AdminNavKey;
 }
 
 const ACCENT_STYLES = {
@@ -35,7 +36,7 @@ const ACCENT_STYLES = {
   },
 } as const;
 
-export function DataBrowserPage({ title, subtitle, filters, columns, rows, accent }: DataBrowserPageProps) {
+export function DataBrowserPage({ title, subtitle, filters, columns, rows, accent, headerActiveKey }: DataBrowserPageProps) {
   const accentStyle = ACCENT_STYLES[accent];
 
   return (
@@ -48,7 +49,7 @@ export function DataBrowserPage({ title, subtitle, filters, columns, rows, accen
       }}
     >
       <div style={{ maxWidth: "1480px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "18px" }}>
-        <AdminHeader />
+        <AdminHeader isSuperAdmin fallbackActiveKey={headerActiveKey} />
 
         <section
           style={{

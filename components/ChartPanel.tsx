@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -90,28 +90,12 @@ export function ChartPanel({
   const [selectedMetric, setSelectedMetric] = useState<PhysicalRankingMetric>("total_score");
 
   const effectiveSelectedTestId = testOptions.some((option) => option.value === selectedTestId) ? selectedTestId : testOptions[0]?.value || "";
-
-  useEffect(() => {
-    if (effectiveSelectedTestId && selectedTestId !== effectiveSelectedTestId) {
-      setSelectedTestId(effectiveSelectedTestId);
-    }
-  }, [effectiveSelectedTestId, selectedTestId]);
-
-  useEffect(() => {
-    const defaultGender = genderOptions[0]?.value as GenderFilter | undefined;
-
-    if (defaultGender && !genderOptions.some((option) => option.value === selectedGender)) {
-      setSelectedGender(defaultGender);
-    }
-  }, [genderOptions, selectedGender]);
-
-  useEffect(() => {
-    const defaultMetric = metricOptions[0]?.value as PhysicalRankingMetric | undefined;
-
-    if (defaultMetric && !metricOptions.some((option) => option.value === selectedMetric)) {
-      setSelectedMetric(defaultMetric);
-    }
-  }, [metricOptions, selectedMetric]);
+  const effectiveSelectedGender = genderOptions.some((option) => option.value === selectedGender)
+    ? selectedGender
+    : (genderOptions[0]?.value as GenderFilter | undefined) || "all";
+  const effectiveSelectedMetric = metricOptions.some((option) => option.value === selectedMetric)
+    ? selectedMetric
+    : (metricOptions[0]?.value as PhysicalRankingMetric | undefined) || "total_score";
 
   const branchStats = useMemo(() => {
     if (!effectiveSelectedTestId) {
@@ -124,12 +108,12 @@ export function ChartPanel({
       physicalRecords,
       physicalTests,
       testId: effectiveSelectedTestId,
-      genderFilter: selectedGender,
-      metric: selectedMetric,
+      genderFilter: effectiveSelectedGender,
+      metric: effectiveSelectedMetric,
     });
-  }, [branches, effectiveSelectedTestId, physicalRecords, physicalTests, selectedGender, selectedMetric, students]);
+  }, [branches, effectiveSelectedGender, effectiveSelectedMetric, effectiveSelectedTestId, physicalRecords, physicalTests, students]);
 
-  const metricMeta = getPhysicalMetricMeta(selectedMetric);
+  const metricMeta = getPhysicalMetricMeta(effectiveSelectedMetric);
   const maxDomainValue = useMemo(
     () => Math.max(...branchStats.map((item) => item.value), 0),
     [branchStats]
@@ -141,11 +125,11 @@ export function ChartPanel({
     },
     chartPanel: {
       background: branchTone.panel,
-      borderRadius: portalTheme.radius.md,
-      padding: "clamp(18px, 3vw, 24px)",
+      borderRadius: "22px",
+      padding: "24px 26px",
       boxShadow: portalTheme.shadows.panel,
       border: `1px solid ${portalTheme.colors.line}`,
-      borderLeft: "6px solid #7c3aed",
+      borderLeft: "5px solid #7c3aed",
     },
     header: {
       display: "flex",
@@ -155,21 +139,21 @@ export function ChartPanel({
     },
     chartPanelTitle: {
       margin: 0,
-      fontSize: "clamp(20px, 2.4vw, 24px)",
+      fontSize: "clamp(24px, 3vw, 28px)",
       fontWeight: 900,
       color: portalTheme.colors.textStrong,
       letterSpacing: "-0.02em",
     },
     chartPanelDesc: {
-      margin: "6px 0 0 0",
+      margin: "8px 0 0 0",
       fontSize: "14px",
       color: portalTheme.colors.textMuted,
-      lineHeight: 1.5,
+      lineHeight: 1.65,
       maxWidth: "64ch",
     },
     controlGrid: {
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))",
+      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
       gap: "10px",
     },
     controlWrap: {
@@ -178,18 +162,19 @@ export function ChartPanel({
       gap: "6px",
     },
     controlLabel: {
-      fontSize: "12px",
+      fontSize: "13px",
       fontWeight: 800,
-      color: portalTheme.colors.textMuted,
+      color: portalTheme.colors.textPrimary,
     },
     select: {
       width: "100%",
-      padding: "10px 12px",
+      minHeight: "40px",
+      padding: "0 12px",
       borderRadius: "12px",
       border: `1px solid ${branchTone.line}`,
       background: branchTone.surfaceStrong,
       color: portalTheme.colors.textStrong,
-      fontSize: "13px",
+      fontSize: "14px",
       fontWeight: 700,
       boxShadow: "none",
     },
@@ -201,7 +186,7 @@ export function ChartPanel({
     chartSurface: {
       width: "100%",
       height: "380px",
-      borderRadius: portalTheme.radius.md,
+      borderRadius: "18px",
       border: `1px solid ${branchTone.line}`,
       background: branchTone.surface,
       padding: "14px 10px 10px 10px",
@@ -215,7 +200,7 @@ export function ChartPanel({
     },
     footerCard: {
       background: branchTone.surface,
-      borderRadius: portalTheme.radius.md,
+      borderRadius: "16px",
       border: `1px solid ${branchTone.line}`,
       padding: "14px 16px",
       boxShadow: portalTheme.shadows.soft,
@@ -242,7 +227,9 @@ export function ChartPanel({
         <div style={styles.header}>
           <div>
             <h3 style={styles.chartPanelTitle}>지점별 평균 비교</h3>
-            <p style={styles.chartPanelDesc}>기본값은 가장 최근 실기, 남녀 전체, 실기 총점 평균입니다. 값이 없거나 하위 30%인 기록은 계산에서 제외합니다. 달리기 종목은 낮을수록 상위입니다.</p>
+            <p style={styles.chartPanelDesc}>
+              기본값은 가장 최근 실기, 남녀 전체, 실기 총점 평균입니다. 값이 높을수록 상위에 노출되며 비교 기준을 바꿔가며 확인할 수 있습니다.
+            </p>
           </div>
 
           <div style={styles.controlGrid}>
@@ -260,19 +247,19 @@ export function ChartPanel({
 
             <label style={styles.controlWrap}>
               <span style={styles.controlLabel}>성별</span>
-              <select style={styles.select} value={selectedGender} onChange={(event) => setSelectedGender(event.target.value as GenderFilter)}>
+              <select style={styles.select} value={effectiveSelectedGender} onChange={(event) => setSelectedGender(event.target.value as GenderFilter)}>
                 {genderOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
-              <span style={styles.helperText}>지점 평균을 남녀, 남, 여 기준으로 나눠 볼 수 있습니다.</span>
+              <span style={styles.helperText}>지점별 평균을 남녀, 남, 여 기준으로 나눠 볼 수 있습니다.</span>
             </label>
 
             <label style={styles.controlWrap}>
               <span style={styles.controlLabel}>평균 기준</span>
-              <select style={styles.select} value={selectedMetric} onChange={(event) => setSelectedMetric(event.target.value as PhysicalRankingMetric)}>
+              <select style={styles.select} value={effectiveSelectedMetric} onChange={(event) => setSelectedMetric(event.target.value as PhysicalRankingMetric)}>
                 {metricOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -287,7 +274,7 @@ export function ChartPanel({
         {branchStats.length === 0 ? (
           <EmptyState
             title="차트 데이터가 없습니다"
-            description="표시할 지점 통계가 없습니다."
+            description="표시할 지점 비교 데이터가 없습니다."
             tone={{
               background: "linear-gradient(180deg, rgba(124, 58, 237, 0.08) 0%, rgba(255, 255, 255, 0.96) 100%)",
               borderColor: branchTone.line,
@@ -315,7 +302,7 @@ export function ChartPanel({
                     tickLine={false}
                     tick={{ fontSize: 13, fill: portalTheme.colors.textPrimary, fontWeight: 700 }}
                   />
-                  <Tooltip cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} content={<CustomTooltip metric={selectedMetric} />} />
+                  <Tooltip cursor={{ fill: "rgba(225, 29, 72, 0.1)" }} content={<CustomTooltip metric={effectiveSelectedMetric} />} />
                   <Bar dataKey="value" radius={[0, 10, 10, 0]} maxBarSize={24}>
                     {branchStats.map((item, index) => (
                       <Cell key={item.branchId} fill={BRANCH_BAR_COLORS[index % BRANCH_BAR_COLORS.length]} />
@@ -323,7 +310,7 @@ export function ChartPanel({
                     <LabelList
                       dataKey="value"
                       position="right"
-                      formatter={(value: number) => formatMetricValue(selectedMetric, value)}
+                      formatter={(value: number) => formatMetricValue(effectiveSelectedMetric, value)}
                       style={{ fill: portalTheme.colors.textStrong, fontSize: 12, fontWeight: 800 }}
                     />
                   </Bar>

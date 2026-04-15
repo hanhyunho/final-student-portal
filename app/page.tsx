@@ -25,6 +25,7 @@ import {
   normalizeStudentId,
   resolveAccountBranchId,
 } from "@/lib/dataService";
+import { resolveExamSaveGroup } from "@/lib/examSaveState";
 import {
   ensurePortalSharedLightData,
   ensurePortalSharedStudentDetails,
@@ -44,6 +45,8 @@ import { StudentDashboard } from "@/components/StudentDashboard";
 import { StudentDetailPanel } from "@/components/StudentDetailPanel";
 import { PrintStudentDetail } from "@/components/PrintStudentDetail";
 import { StudentModal } from "@/components/StudentModal";
+import { ConsultPanel, type ConsultStudentInfo } from "@/components/ConsultPanel";
+import { resolveConsultType, type ConsultType } from "@/lib/consult-data";
 import { portalButtonStyles, portalLayout, portalTheme } from "@/lib/theme";
 
 type SortType =
@@ -1004,6 +1007,13 @@ function HomeContent() {
   const [isDetailPopupOpen, setIsDetailPopupOpen] = useState(false);
   const [detailStudentId, setDetailStudentId] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<ModalMode>("add");
+  const [modalInitialExamId, setModalInitialExamId] = useState<string | null>(null);
+  const [consultPanelState, setConsultPanelState] = useState<{
+    studentId: string;
+    studentInfo: ConsultStudentInfo;
+    initialConsultType: ConsultType;
+  } | null>(null);
+  const [consultFilledMap, setConsultFilledMap] = useState<Record<string, ConsultType[]>>({});
   const [saving, setSaving] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
   const [restoringSession, setRestoringSession] = useState(false);
@@ -1109,6 +1119,7 @@ function HomeContent() {
     setRawStudents([]);
     setBranches([]);
     setAccounts([]);
+    setConsultFilledMap({});
     clearLocalPortalDetails();
     setSelectedStudentId(null);
     resetPortalSharedStore();
@@ -1536,6 +1547,15 @@ function HomeContent() {
 
     return dedupeStudents(sorted);
   }, [accounts, branchFilter, loginFilter, scopedStudents, search, sortType, studentStatusFilter]);
+
+  const consultPrefetchStudentIds = useMemo(
+    () =>
+      filteredStudents
+        .slice(0, 30)
+        .map((student) => s(student.student_id).trim())
+        .filter(Boolean),
+    [filteredStudents]
+  );
 
   const getStudentLoginStatus = useCallback(
     (student: Student) => {
@@ -1991,6 +2011,83 @@ function HomeContent() {
     void loadAccounts();
   }, [clearLocalPortalDetails, loadAccounts]);
 
+  const handleOpenExamEditor = useCallback(async (studentId: string, examId: string) => {
+    if (!canManageStudents) return;
+    const normalizedStudentId = normalizeStudentId(studentId);
+    setSelectedStudentId(normalizedStudentId);
+    await loadStudentDetails(normalizedStudentId);
+    setModalInitialExamId(examId);
+    setModalMode("edit");
+    setIsModalOpen(true);
+  }, [canManageStudents, loadStudentDetails]);
+
+  const handleOpenConsultPanel = useCallback((
+    studentId: string,
+    consultType: string,
+    studentInfo: { name: string; branch: string; school: string; grade: string }
+  ) => {
+    setConsultPanelState({
+      studentId,
+      studentInfo,
+      initialConsultType: resolveConsultType(consultType),
+    });
+  }, []);
+
+  const handleConsultFilledTypesChange = useCallback((studentId: string, filledTypes: ConsultType[]) => {
+    setConsultFilledMap((prev) => ({ ...prev, [studentId]: filledTypes }));
+  }, []);
+
+  useEffect(() => {
+    if (!canManageStudents || consultPrefetchStudentIds.length === 0) {
+      return;
+    }
+
+    const missingStudentIds = consultPrefetchStudentIds.filter((studentId) => !(studentId in consultFilledMap));
+
+    if (missingStudentIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadConsultSummary = async () => {
+      try {
+        const res = await fetch("/api/consult/summary", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ studentIds: missingStudentIds }),
+          cache: "no-store",
+        });
+        const result = await safeJson(res);
+
+        if (cancelled || !res.ok || result.ok === false) {
+          return;
+        }
+
+        const nextConsultFilledMap = result.consultFilledMap as Record<string, ConsultType[]> | undefined;
+
+        if (!nextConsultFilledMap) {
+          return;
+        }
+
+        setConsultFilledMap((prev) => ({
+          ...prev,
+          ...nextConsultFilledMap,
+        }));
+      } catch {
+        // Keep the table usable even if summary prefetch fails.
+      }
+    };
+
+    void loadConsultSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageStudents, consultFilledMap, consultPrefetchStudentIds]);
+
   const openEditModal = useCallback(async () => {
     if (!canManageStudents) {
       blockUnauthorizedAction("학생 수정 권한이 없습니다.");
@@ -2176,19 +2273,22 @@ function HomeContent() {
       throw new Error("이 학생의 시험 성적은 저장할 수 없습니다.");
     }
 
-    const existingScore = scopedMockScores.find(
-      (item) =>
-        s(item.student_id).trim() === studentContext.student_id &&
-        s(item.exam_id).trim() === s(examId).trim()
-    );
+    const incomingExamGroup = resolveExamSaveGroup(s(examId).trim());
+    const existingScore = scopedMockScores.find((item) => {
+      if (s(item.student_id).trim() !== studentContext.student_id) return false;
+      const itemExamId = s(item.exam_id).trim();
+      if (itemExamId === s(examId).trim()) return true;
+      return incomingExamGroup !== null && resolveExamSaveGroup(itemExamId) === incomingExamGroup;
+    });
     const now = new Date().toISOString();
+    const resolvedExamId = s(existingScore?.exam_id || examId).trim();
     const nextScoreRow: MockScore = {
       ...existingScore,
-      score_id: s(existingScore?.score_id).trim() || buildGeneratedId(`score-${studentContext.student_id}-${examId}`),
+      score_id: s(existingScore?.score_id).trim(),
       student_id: studentContext.student_id,
       student_name: studentContext.name,
       branch_id: studentContext.branch_id,
-      exam_id: s(examId).trim(),
+      exam_id: resolvedExamId,
       created_at: s(existingScore?.created_at).trim() || now,
       updated_at: now,
     };
@@ -2517,16 +2617,18 @@ function HomeContent() {
           />
         )}
 
-        <section style={styles.heroIntro}>
-          <div style={styles.heroIntroInner}>
-            <div style={styles.heroIntroCopy}>
-              <p style={styles.badge}>{dashboardBadge}</p>
-              <h1 style={styles.title}>{dashboardTitle}</h1>
-              <div style={styles.introAccentLine} />
-              <p style={styles.subtitle}>{dashboardSubtitle}</p>
+        {isStudentRole ? (
+          <section style={styles.heroIntro}>
+            <div style={styles.heroIntroInner}>
+              <div style={styles.heroIntroCopy}>
+                <p style={styles.badge}>{dashboardBadge}</p>
+                <h1 style={styles.title}>{dashboardTitle}</h1>
+                <div style={styles.introAccentLine} />
+                <p style={styles.subtitle}>{dashboardSubtitle}</p>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        ) : null}
 
         {isStudentRole ? (
           <StudentDashboard
@@ -2577,6 +2679,9 @@ function HomeContent() {
             onMoveSelection={moveSelection}
             onPrint={handlePrint}
             onAdd={openAddModal}
+            onOpenExamEditor={handleOpenExamEditor}
+            onOpenConsultPanel={handleOpenConsultPanel}
+            consultFilledMap={consultFilledMap}
             getAverageNumber={getAverageNumber}
             getStudentLoginStatus={getStudentLoginStatus}
             getStatusStyle={getStatusStyle}
@@ -2654,18 +2759,29 @@ function HomeContent() {
           isOpen={isModalOpen}
           mode={modalMode}
           student={modalMode === "edit" ? selectedStudent : null}
+          initialExamId={modalMode === "edit" ? modalInitialExamId : null}
           initialLoginStatus={modalMode === "edit" && selectedStudent ? getStudentLoginStatus(selectedStudent) : "active"}
           branches={scopedBranches}
           mockExams={mockExams}
           physicalTests={physicalTests}
           physicalRecords={scopedPhysicalRecords}
           saving={saving}
-          onClose={() => setIsModalOpen(false)}
+          onClose={() => { setIsModalOpen(false); setModalInitialExamId(null); }}
           onSave={handleModalSave}
           onSaveExamScores={handleExamScoreSave}
           onSavePhysicalRecord={handlePhysicalRecordSave}
         />
       ) : null}
+
+      {consultPanelState && (
+        <ConsultPanel
+          studentId={consultPanelState.studentId}
+          studentInfo={consultPanelState.studentInfo}
+          initialConsultType={consultPanelState.initialConsultType}
+          onClose={() => setConsultPanelState(null)}
+          onFilledTypesChange={handleConsultFilledTypesChange}
+        />
+      )}
     </main>
   );
 }

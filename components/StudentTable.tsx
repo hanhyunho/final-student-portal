@@ -1,7 +1,16 @@
-import React, { memo, useMemo } from "react";
+import React, { memo, useMemo, useState } from "react";
 import { normalizeStudentId, type Student } from "@/lib/dataService";
 import { EmptyState } from "@/components/EmptyState";
 import { StudentRowStatusPanel } from "@/components/StudentRowStatusPanel";
+import {
+  EXAM_LABELS,
+  EXAM_SAVE_GROUPS,
+  getCanonicalExamId,
+  hasExamSaved,
+  resolveExamSaveGroup,
+  type ExamSaveGroup,
+} from "@/lib/examSaveState";
+import { CONSULT_TYPE_SHORT, type ConsultType } from "@/lib/consult-data";
 import { portalTheme } from "@/lib/theme";
 
 type StudentListItem = Student & {
@@ -21,6 +30,9 @@ interface StudentTableProps {
   getStatusStyle: (status: string | undefined) => React.CSSProperties;
   getAverageNumber: (student: Student) => number;
   s: (value: unknown) => string;
+  onOpenExamEditor?: (studentId: string, examId: string) => void;
+  onOpenConsultPanel?: (studentId: string, consultType: string, studentInfo: { name: string; branch: string; school: string; grade: string }) => void;
+  consultFilledMap?: Record<string, ConsultType[]>;
 }
 
 function StudentTableComponent({
@@ -35,6 +47,9 @@ function StudentTableComponent({
   getStatusStyle,
   getAverageNumber,
   s,
+  onOpenExamEditor,
+  onOpenConsultPanel,
+  consultFilledMap,
 }: StudentTableProps) {
   void getStatusStyle;
   void getAverageNumber;
@@ -43,34 +58,34 @@ function StudentTableComponent({
     tableWrap: {
       overflowX: "auto",
       overflowY: "hidden",
+      borderRadius: "18px",
     },
     table: {
       width: "max-content",
       minWidth: "100%",
-      borderCollapse: "collapse",
+      borderCollapse: "separate",
+      borderSpacing: 0,
     },
     thLeft: {
-      padding: "11px 12px",
+      padding: "14px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineStrong}`,
-      background: "#f7fafc",
+      background: "#f3f6fa",
       textAlign: "left",
       fontSize: "13px",
       color: portalTheme.colors.textPrimary,
       whiteSpace: "nowrap",
-      fontWeight: 800,
-      letterSpacing: "0.01em",
+      fontWeight: 900,
       verticalAlign: "middle",
     },
     thCenter: {
-      padding: "11px 12px",
+      padding: "14px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineStrong}`,
-      background: "#f7fafc",
+      background: "#f3f6fa",
       textAlign: "center",
       fontSize: "13px",
       color: portalTheme.colors.textPrimary,
       whiteSpace: "nowrap",
-      fontWeight: 800,
-      letterSpacing: "0.01em",
+      fontWeight: 900,
       verticalAlign: "middle",
     },
     thExtension: {
@@ -82,40 +97,47 @@ function StudentTableComponent({
       minWidth: "284px",
     },
     tdLeft: {
-      padding: "13px 12px",
+      padding: "14px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
-      fontSize: "13px",
+      fontSize: "14px",
       color: portalTheme.colors.textPrimary,
       whiteSpace: "nowrap",
       textAlign: "left",
       verticalAlign: "middle",
+      background: "transparent",
     },
     tdStrong: {
-      padding: "13px 12px",
+      padding: "14px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
-      fontSize: "13px",
-      fontWeight: 800,
+      fontSize: "15px",
+      fontWeight: 900,
       color: portalTheme.colors.textStrong,
       whiteSpace: "nowrap",
       textAlign: "left",
       verticalAlign: "middle",
+      background: "transparent",
     },
     tdCenter: {
-      padding: "13px 12px",
+      padding: "14px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
-      fontSize: "13px",
+      fontSize: "14px",
       color: portalTheme.colors.textPrimary,
       whiteSpace: "nowrap",
       textAlign: "center",
       verticalAlign: "middle",
+      background: "transparent",
     },
     row: {
       cursor: "pointer",
-      transition: "background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease",
+      transition: "background-color 0.16s ease, box-shadow 0.16s ease",
     },
     selectedRow: {
-      background: "linear-gradient(90deg, rgba(217, 45, 32, 0.08) 0%, rgba(255,255,255,0.9) 28%)",
-      boxShadow: `inset 4px 0 0 ${portalTheme.colors.primary}`,
+      backgroundColor: "transparent",
+      boxShadow: "none",
+    },
+    hoveredRow: {
+      backgroundColor: "rgba(217, 45, 32, 0.05)",
+      boxShadow: "inset 4px 0 0 rgba(217, 45, 32, 0.56)",
     },
     phoneText: {
       color: portalTheme.colors.textMuted,
@@ -133,21 +155,22 @@ function StudentTableComponent({
       background: portalTheme.colors.primarySoft,
       color: portalTheme.colors.primaryStrong,
       fontSize: "12px",
-      fontWeight: 800,
+      fontWeight: 900,
       minHeight: "34px",
-      padding: "7px 12px",
+      padding: "7px 14px",
       cursor: "pointer",
       whiteSpace: "nowrap",
       flexShrink: 0,
     },
     statusCell: {
-      padding: "13px 12px",
+      padding: "14px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
       whiteSpace: "nowrap",
       width: "108px",
       minWidth: "108px",
       textAlign: "center",
       verticalAlign: "middle",
+      background: "transparent",
     },
     loginBadge: {
       display: "inline-flex",
@@ -157,7 +180,7 @@ function StudentTableComponent({
       padding: "6px 11px",
       borderRadius: portalTheme.radius.pill,
       fontSize: "11px",
-      fontWeight: 800,
+      fontWeight: 900,
       border: `1px solid ${portalTheme.colors.line}`,
       boxShadow: "inset 0 1px 0 rgba(255,255,255,0.68)",
       letterSpacing: "0.01em",
@@ -173,30 +196,33 @@ function StudentTableComponent({
       border: "1px solid rgba(180, 192, 208, 0.24)",
     },
     tdExtension: {
-      padding: "13px 12px 13px 8px",
+      padding: "14px 12px 14px 8px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
       width: "224px",
       minWidth: "224px",
       whiteSpace: "nowrap",
       textAlign: "center",
       verticalAlign: "middle",
+      background: "transparent",
     },
     tdConsult: {
-      padding: "13px 12px 13px 8px",
+      padding: "14px 12px 14px 8px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
       width: "284px",
       minWidth: "284px",
       whiteSpace: "nowrap",
       textAlign: "center",
       verticalAlign: "middle",
+      background: "transparent",
     },
     shortcutCell: {
-      padding: "13px 12px",
+      padding: "14px 12px",
       borderBottom: `1px solid ${portalTheme.colors.lineTable}`,
       width: "112px",
       minWidth: "112px",
       textAlign: "center",
       verticalAlign: "middle",
+      background: "transparent",
     },
     panelCellInner: {
       display: "flex",
@@ -205,6 +231,8 @@ function StudentTableComponent({
       width: "100%",
     },
   };
+
+  const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null);
 
   const visibleStudents = useMemo(
     () => students.filter((student) => s(student.student_id).trim() && s(student.name).trim()),
@@ -260,13 +288,45 @@ function StudentTableComponent({
       ...styles.loginBadge,
       ...getStatusStyle(normalizedStudentStatus),
     };
+    const examScores = (st as Student & { exam_scores?: Record<string, Partial<Student>> }).exam_scores || {};
+    const scoreTabs = EXAM_SAVE_GROUPS.map((group: ExamSaveGroup) => ({
+      label: EXAM_LABELS[group],
+      examId: getCanonicalExamId(group),
+      group,
+    }));
+    const filledScoreTabs = scoreTabs
+      .filter(({ group }) => {
+        const saved = hasExamSaved({ exam_scores: examScores }, group);
+        if (process.env.NODE_ENV !== "production") {
+          console.info("[StudentTable] saved-state", {
+            student_id: selectionId,
+            group,
+            saved,
+            examScores,
+          });
+        }
+        return saved;
+      })
+      .map(({ label }) => label);
+    const activeScoreTab =
+      scoreTabs.find(({ examId }) => {
+        const examGroup = resolveExamSaveGroup(s(st.exam_id).trim());
+        return (examGroup ? getCanonicalExamId(examGroup) : s(st.exam_id).trim()) === examId;
+      })?.label || "";
+    const isHovered = Boolean(selectionId) && hoveredStudentId === selectionId;
 
     return (
       <tr
         key={rowKey}
         onClick={() => selectionId && onSelectStudent(selectionId)}
         onDoubleClick={() => selectionId && onDoubleClick(selectionId)}
-        style={{ ...styles.row, ...(isSelected ? styles.selectedRow : {}) }}
+        onMouseEnter={() => setHoveredStudentId(selectionId || null)}
+        onMouseLeave={() => setHoveredStudentId((prev) => (prev === selectionId ? null : prev))}
+        style={{
+          ...styles.row,
+          ...(isSelected ? styles.selectedRow : {}),
+          ...(isHovered ? styles.hoveredRow : {}),
+        }}
       >
         <td style={styles.tdStrong}>{s(st.name)}</td>
         <td style={styles.tdLeft}>{getBranchLabel(s(st.branch_id))}</td>
@@ -299,12 +359,47 @@ function StudentTableComponent({
         </td>
         <td style={styles.tdExtension}>
           <div style={styles.panelCellInner}>
-            <StudentRowStatusPanel tabs={["3모", "6모", "9모", "수능"]} tint="blue" initialValue="3모" />
+            <StudentRowStatusPanel
+              tabs={["3모", "6모", "9모", "수능"]}
+              tint="blue"
+              activeTab={activeScoreTab}
+              filledTabs={filledScoreTabs}
+              savedStyle="success"
+              initialValue="3모"
+              onTabClick={(tab) => {
+                if (!selectionId || !onOpenExamEditor) {
+                  return;
+                }
+
+                const matchedExam = scoreTabs.find((item) => item.label === tab);
+                if (!matchedExam) {
+                  return;
+                }
+
+                onOpenExamEditor(selectionId, matchedExam.examId);
+              }}
+            />
           </div>
         </td>
         <td style={styles.tdConsult}>
           <div style={styles.panelCellInner}>
-            <StudentRowStatusPanel tabs={["기본", "3모", "6모", "9모", "수능"]} tint="green" initialValue="기본" />
+            <StudentRowStatusPanel
+              tabs={["기본", "3모", "6모", "9모", "수능"]}
+              tint="green"
+              initialValue="기본"
+              filledTabs={(consultFilledMap?.[selectionId] ?? []).map(
+                (t) => CONSULT_TYPE_SHORT[t]
+              )}
+              onTabClick={(tab) => {
+                if (!selectionId || !onOpenConsultPanel) return;
+                onOpenConsultPanel(selectionId, tab, {
+                  name: s(st.name),
+                  branch: getBranchLabel(s(st.branch_id)),
+                  school: s(st.school_name),
+                  grade: s(st.grade),
+                });
+              }}
+            />
           </div>
         </td>
       </tr>
@@ -316,7 +411,7 @@ function StudentTableComponent({
       {loading ? (
         <EmptyState title="불러오는 중입니다" description="학생 목록을 불러오고 있습니다." />
       ) : visibleStudents.length === 0 ? (
-        <EmptyState title="검색 결과가 없습니다" description="검색어 또는 필터 조건을 확인하세요." />
+        <EmptyState title="검색 결과가 없습니다" description="검색어 또는 필터 조건을 확인해 주세요." />
       ) : (
         <table style={styles.table}>
           <thead>

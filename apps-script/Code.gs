@@ -3,6 +3,7 @@ const ACCOUNTS_SHEET_NAME = 'accounts';
 const BRANCHES_SHEET_NAME = 'branches';
 const MOCK_SCORES_SHEET_NAME = 'mock_scores';
 const PHYSICAL_RECORDS_SHEET_NAME = 'physical_records';
+const CONSULT_SHEET_NAME = '상담기록';
 
 function doGet(e) {
   try {
@@ -14,6 +15,21 @@ function doGet(e) {
 
     if (action === 'listStudents' || action === 'list') {
       return jsonOutput_(listStudents_());
+    }
+
+    if (action === 'getConsultRecord') {
+      var studentId = stringValue_(e && e.parameter ? e.parameter.student_id : '');
+      var all = stringValue_(e && e.parameter ? e.parameter.all : '');
+      if (all === 'true') {
+        return jsonOutput_(getAllConsultRecords_(studentId));
+      }
+      var consultType = stringValue_(e && e.parameter ? e.parameter.consult_type : '');
+      return jsonOutput_(getConsultRecord_(studentId, consultType));
+    }
+
+    if (action === 'getConsultSummary') {
+      var studentIdsParam = stringValue_(e && e.parameter ? e.parameter.student_ids : '');
+      return jsonOutput_(getConsultSummary_(studentIdsParam));
     }
 
     return jsonOutput_(failResponse_('Unsupported GET action', 400));
@@ -50,6 +66,10 @@ function doPost(e) {
 
     if (action === 'savePhysicalRecord') {
       return jsonOutput_(_savePhysicalRecord_(payload));
+    }
+
+    if (action === 'saveConsultRecord') {
+      return jsonOutput_(saveConsultRecord_(payload));
     }
 
     if (action === 'delete') {
@@ -397,6 +417,34 @@ function listStudents_() {
   };
 }
 
+var EXAM_GROUP_PATTERNS_ = [
+  { group: 'march',     pattern: /^(3모|3월|3mo|03mo|3-m|3_mock|EXAM\d{4}03)$/i },
+  { group: 'june',      pattern: /^(6모|6월|6mo|06mo|6-m|6_mock|EXAM\d{4}06)$/i },
+  { group: 'september', pattern: /^(9모|9월|9mo|09mo|9-m|9_mock|EXAM\d{4}09)$/i },
+  { group: 'csat',      pattern: /^(수능|suneung|sunung|csat|EXAM\d{4}11)$/i },
+];
+
+function resolveExamGroup_(examId) {
+  var normalized = String(examId || '').trim();
+  for (var i = 0; i < EXAM_GROUP_PATTERNS_.length; i++) {
+    if (EXAM_GROUP_PATTERNS_[i].pattern.test(normalized)) {
+      return EXAM_GROUP_PATTERNS_[i].group;
+    }
+  }
+  return null;
+}
+
+function generateNextScoreId_(values, scoreIdColumnIndex) {
+  var maxValue = 0;
+  for (var index = 1; index < values.length; index += 1) {
+    var match = stringValue_(values[index][scoreIdColumnIndex]).match(/^SCR(\d+)$/i);
+    if (!match) continue;
+    var numericValue = Number(match[1]);
+    if (numericValue > maxValue) maxValue = numericValue;
+  }
+  return 'SCR' + String(maxValue + 1).padStart(6, '0');
+}
+
 function _saveMockScore_(inputRow) {
   const row = normalizeRowObject_(inputRow);
   const studentId = stringValue_(row.student_id);
@@ -410,12 +458,77 @@ function _saveMockScore_(inputRow) {
     return failResponse_('exam_id is required.', 400, { mode: 'rejected', rowIndex: null });
   }
 
-  return upsertSheetRowByKeys_({
-    sheetName: MOCK_SCORES_SHEET_NAME,
-    row: row,
-    keyFields: ['student_id', 'exam_id'],
-    responseLabel: 'Mock score',
-  });
+  const sheet = getSheet_(MOCK_SCORES_SHEET_NAME);
+  const values = getSheetValues_(sheet);
+
+  if (values.length === 0) {
+    return failResponse_(MOCK_SCORES_SHEET_NAME + ' sheet is empty.', 500, { mode: 'rejected', rowIndex: null });
+  }
+
+  const headers = values[0].map(stringValue_);
+  const headerMap = buildHeaderMap_(headers);
+
+  if (headerMap.student_id === undefined || headerMap.exam_id === undefined) {
+    return failResponse_('Missing required header: student_id or exam_id', 500, { mode: 'rejected', rowIndex: null });
+  }
+
+  // exam_id 그룹 매칭: "3mo"와 "EXAM202503"을 같은 시험으로 인식
+  var incomingGroup = resolveExamGroup_(examId);
+  var resolvedExamId = examId;
+  var foundRowIndex = 0;
+
+  for (var index = 1; index < values.length; index += 1) {
+    var rowStudentId = stringValue_(values[index][headerMap.student_id]);
+    var rowExamId = stringValue_(values[index][headerMap.exam_id]);
+
+    if (rowStudentId !== studentId) continue;
+    if (rowExamId === examId) {
+      foundRowIndex = index + 1;
+      resolvedExamId = rowExamId;
+      break;
+    }
+    if (incomingGroup !== null && resolveExamGroup_(rowExamId) === incomingGroup) {
+      foundRowIndex = index + 1;
+      resolvedExamId = rowExamId;
+      break;
+    }
+  }
+
+  row.exam_id = resolvedExamId;
+
+  // score_id 생성: 기존 행 없고 score_id가 비어 있으면 SCR 형식으로 자동 생성
+  if (foundRowIndex <= 1 && !stringValue_(row.score_id) && headerMap.score_id !== undefined) {
+    row.score_id = generateNextScoreId_(values, headerMap.score_id);
+  }
+
+  const mode = foundRowIndex > 1 ? 'update' : 'insert';
+
+  if (mode === 'update') {
+    const existingRowValues = values[foundRowIndex - 1];
+    const updatedRowValues = buildUpdatedRowValues_(headers, existingRowValues, row);
+    sheet.getRange(foundRowIndex, 1, 1, headers.length).setValues([updatedRowValues]);
+    return {
+      ok: true,
+      success: true,
+      mode: 'update',
+      rowIndex: foundRowIndex,
+      data: objectFromRowValues_(headers, updatedRowValues),
+      message: 'Mock score updated successfully.',
+    };
+  }
+
+  const insertedRowValues = buildInsertedRowValues_(headers, row);
+  sheet.appendRow(insertedRowValues);
+  const insertedRowIndex = sheet.getLastRow();
+
+  return {
+    ok: true,
+    success: true,
+    mode: 'insert',
+    rowIndex: insertedRowIndex,
+    data: objectFromRowValues_(headers, insertedRowValues),
+    message: 'Mock score inserted successfully.',
+  };
 }
 
 function _savePhysicalRecord_(inputRow) {
@@ -437,6 +550,209 @@ function _savePhysicalRecord_(inputRow) {
     keyFields: ['student_id', 'test_id'],
     responseLabel: 'Physical record',
   });
+}
+
+function ensureConsultSheet_() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = spreadsheet.getSheetByName(CONSULT_SHEET_NAME);
+
+  if (sheet) {
+    return sheet;
+  }
+
+  sheet = spreadsheet.insertSheet(CONSULT_SHEET_NAME);
+  var headers = [
+    'consult_id', 'student_id', 'student_name', 'branch', 'school', 'grade',
+    'consult_type', 'consult_type_label', 'consult_memo',
+    'score_korean', 'score_math', 'score_english',
+    'score_inquiry1', 'score_inquiry2', 'score_history',
+    'score_average', 'score_percentile', 'score_grade', 'score_note',
+    'created_at', 'updated_at',
+  ];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  return sheet;
+}
+
+function getAllConsultRecords_(studentId) {
+  var sheet = ensureConsultSheet_();
+  var values = getSheetValues_(sheet);
+  var records = {};
+
+  if (values.length <= 1) {
+    return { ok: true, records: records };
+  }
+
+  var headers = values[0].map(stringValue_);
+  var headerMap = buildHeaderMap_(headers);
+
+  if (headerMap.student_id === undefined || headerMap.consult_type === undefined) {
+    return { ok: true, records: records };
+  }
+
+  for (var index = 1; index < values.length; index += 1) {
+    var rowStudentId = stringValue_(values[index][headerMap.student_id]);
+    if (rowStudentId !== studentId) continue;
+    var rowConsultType = stringValue_(values[index][headerMap.consult_type]);
+    if (rowConsultType) {
+      records[rowConsultType] = objectFromRowValues_(headers, values[index]);
+    }
+  }
+
+  return { ok: true, records: records };
+}
+
+function getConsultRecord_(studentId, consultType) {
+  var sheet = ensureConsultSheet_();
+  var values = getSheetValues_(sheet);
+
+  if (values.length <= 1) {
+    return { ok: true, record: null };
+  }
+
+  var headers = values[0].map(stringValue_);
+  var headerMap = buildHeaderMap_(headers);
+
+  if (headerMap.student_id === undefined || headerMap.consult_type === undefined) {
+    return { ok: true, record: null };
+  }
+
+  for (var index = 1; index < values.length; index += 1) {
+    var rowStudentId = stringValue_(values[index][headerMap.student_id]);
+    var rowConsultType = stringValue_(values[index][headerMap.consult_type]);
+
+    if (rowStudentId === studentId && rowConsultType === consultType) {
+      return { ok: true, record: objectFromRowValues_(headers, values[index]) };
+    }
+  }
+
+  return { ok: true, record: null };
+}
+
+function getConsultSummary_(studentIdsParam) {
+  var requestedIds = String(studentIdsParam || '')
+    .split(',')
+    .map(function (value) { return stringValue_(value); })
+    .filter(function (value) { return value !== ''; });
+  var requestedIdMap = {};
+  var summary = {};
+
+  for (var requestedIndex = 0; requestedIndex < requestedIds.length; requestedIndex += 1) {
+    requestedIdMap[requestedIds[requestedIndex]] = true;
+    summary[requestedIds[requestedIndex]] = [];
+  }
+
+  if (requestedIds.length === 0) {
+    return { ok: true, success: true, consultFilledMap: summary };
+  }
+
+  var sheet = ensureConsultSheet_();
+  var values = getSheetValues_(sheet);
+
+  if (values.length <= 1) {
+    return { ok: true, success: true, consultFilledMap: summary };
+  }
+
+  var headers = values[0].map(stringValue_);
+  var headerMap = buildHeaderMap_(headers);
+
+  if (headerMap.student_id === undefined || headerMap.consult_type === undefined || headerMap.consult_memo === undefined) {
+    return { ok: true, success: true, consultFilledMap: summary };
+  }
+
+  for (var index = 1; index < values.length; index += 1) {
+    var studentId = stringValue_(values[index][headerMap.student_id]);
+    if (!requestedIdMap[studentId]) continue;
+
+    var consultType = stringValue_(values[index][headerMap.consult_type]);
+    var consultMemo = stringValue_(values[index][headerMap.consult_memo]);
+    if (!consultType || !consultMemo) continue;
+
+    if (summary[studentId].indexOf(consultType) === -1) {
+      summary[studentId].push(consultType);
+    }
+  }
+
+  return { ok: true, success: true, consultFilledMap: summary };
+}
+
+function saveConsultRecord_(inputRow) {
+  var row = normalizeRowObject_(inputRow);
+  var studentId = stringValue_(row.student_id);
+  var consultType = stringValue_(row.consult_type);
+
+  if (!studentId) {
+    return failResponse_('student_id is required.', 400, { mode: 'rejected', rowIndex: null });
+  }
+
+  if (!consultType) {
+    return failResponse_('consult_type is required.', 400, { mode: 'rejected', rowIndex: null });
+  }
+
+  var sheet = ensureConsultSheet_();
+  var values = getSheetValues_(sheet);
+
+  if (values.length === 0) {
+    return failResponse_('consult sheet has no headers.', 500, { mode: 'rejected', rowIndex: null });
+  }
+
+  var headers = values[0].map(stringValue_);
+  var headerMap = buildHeaderMap_(headers);
+
+  var foundRowIndex = 0;
+  var maxValue = 0;
+
+  for (var index = 1; index < values.length; index += 1) {
+    var rowStudentId = stringValue_(values[index][headerMap.student_id]);
+    var rowConsultType = stringValue_(values[index][headerMap.consult_type]);
+
+    if (headerMap.consult_id !== undefined) {
+      var consultIdMatch = stringValue_(values[index][headerMap.consult_id]).match(/^CONS(\d+)$/i);
+      if (consultIdMatch) {
+        var numericValue = Number(consultIdMatch[1]);
+        if (numericValue > maxValue) maxValue = numericValue;
+      }
+    }
+
+    if (rowStudentId === studentId && rowConsultType === consultType) {
+      foundRowIndex = index + 1;
+      break;
+    }
+  }
+
+  if (foundRowIndex <= 1 && !stringValue_(row.consult_id) && headerMap.consult_id !== undefined) {
+    row.consult_id = 'CONS' + String(maxValue + 1).padStart(6, '0');
+  }
+
+  var mode = foundRowIndex > 1 ? 'update' : 'insert';
+
+  if (mode === 'update') {
+    var existingRowValues = values[foundRowIndex - 1];
+    var updatedRowValues = buildUpdatedRowValues_(headers, existingRowValues, row);
+    sheet.getRange(foundRowIndex, 1, 1, headers.length).setValues([updatedRowValues]);
+
+    return {
+      ok: true,
+      success: true,
+      mode: 'update',
+      rowIndex: foundRowIndex,
+      data: objectFromRowValues_(headers, updatedRowValues),
+      message: 'Consult record updated successfully.',
+    };
+  }
+
+  var insertedRowValues = buildInsertedRowValues_(headers, row);
+  sheet.appendRow(insertedRowValues);
+  var insertedRowIndex = sheet.getLastRow();
+
+  return {
+    ok: true,
+    success: true,
+    mode: 'insert',
+    rowIndex: insertedRowIndex,
+    data: objectFromRowValues_(headers, insertedRowValues),
+    message: 'Consult record inserted successfully.',
+  };
 }
 
 function parseRequestBody_(e) {

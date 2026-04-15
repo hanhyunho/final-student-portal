@@ -42,6 +42,7 @@ export default function JeongsiDataPage() {
       title="정시DATA"
       subtitle="정시 백데이터 조회 화면"
       accent="green"
+      headerActiveKey="regular-data"
       filters={[
         { label: "대학 선택", type: "select", options: ["전체 대학", "한체대", "이화여대", "경희대", "국민대"] },
         { label: "군 선택", type: "select", options: ["전체 군", "가", "나", "다"] },

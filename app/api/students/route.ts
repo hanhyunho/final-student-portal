@@ -8,7 +8,7 @@ const BRANCH_LOOKUP_CACHE_TTL_MS = 15_000;
 const APPS_SCRIPT_URL =
   process.env.APPS_SCRIPT_URL ||
   process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
-  "https://script.google.com/macros/s/AKfycbzMiiF4k6E2VAbLxOHJ39lGrDOv9PP9YnHI7he_Y-xyFtS91E4xjkRZG1vj68BKuPnBBA/exec";
+  "https://script.google.com/macros/s/AKfycbwg7vShRN81QwHUBVHd8ZV18MOaptABerhtg-Fvqw2R1isYTl3muP0xGwOXATBEBqwHlg/exec";
 
 type RouteResult = {
   ok?: boolean;

@@ -26,38 +26,39 @@ export function DashboardStats({ summary, quickStats }: DashboardStatsProps) {
   const styles: { [key: string]: React.CSSProperties } = {
     summaryGrid: {
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
       gap: "14px",
       marginBottom: "22px",
     },
     summaryCard: {
-      borderRadius: portalTheme.radius.md,
-      padding: "clamp(14px, 2.6vw, 20px) clamp(14px, 3vw, 22px)",
+      borderRadius: "20px",
+      padding: "20px 20px 18px",
       boxShadow: portalTheme.shadows.panel,
       border: `1px solid ${portalTheme.colors.line}`,
       display: "flex",
       flexDirection: "column",
-      gap: "8px",
+      gap: "10px",
       position: "relative",
       overflow: "hidden",
+      minHeight: "126px",
     },
     summaryLabel: {
       display: "block",
-      fontSize: "12px",
+      fontSize: "14px",
       color: portalTheme.colors.textMuted,
       fontWeight: 800,
-      letterSpacing: "0.02em",
     },
     summaryValue: {
-      fontSize: "clamp(24px, 4vw, 34px)",
+      fontSize: "clamp(34px, 5vw, 46px)",
       fontWeight: 900,
       color: portalTheme.colors.textStrong,
-      letterSpacing: "-0.03em",
+      letterSpacing: "-0.04em",
       lineHeight: 1,
     },
     summaryHint: {
-      fontSize: "12px",
+      fontSize: "14px",
       color: portalTheme.colors.textSoft,
+      lineHeight: 1.55,
     },
     summaryAccent: {
       position: "absolute",
@@ -84,6 +85,7 @@ export function DashboardStats({ summary, quickStats }: DashboardStatsProps) {
         <strong style={{ ...styles.summaryValue, color: "#dc2626" }}>{summary.count}명</strong>
         <span style={styles.summaryHint}>현재 필터 기준</span>
       </div>
+
       <div
         style={{
           ...styles.summaryCard,
@@ -96,6 +98,7 @@ export function DashboardStats({ summary, quickStats }: DashboardStatsProps) {
         <strong style={{ ...styles.summaryValue, color: "#2563eb" }}>{summary.activeCount}명</strong>
         <span style={styles.summaryHint}>재원 상태 active</span>
       </div>
+
       <div
         style={{
           ...styles.summaryCard,
@@ -108,6 +111,7 @@ export function DashboardStats({ summary, quickStats }: DashboardStatsProps) {
         <strong style={{ ...styles.summaryValue, color: "#16a34a" }}>{summary.avgScore}</strong>
         <span style={styles.summaryHint}>국영수탐 원점수합산 기준</span>
       </div>
+
       <div
         style={{
           ...styles.summaryCard,
