@@ -317,6 +317,40 @@ export function removePortalSharedStudentDetails(studentId: string) {
   });
 }
 
+export function mergePortalSharedStudentDetails(
+  studentId: string,
+  input: Partial<Omit<PortalStudentDetails, "loadedAt">>
+) {
+  let normalizedStudentId = "";
+
+  try {
+    normalizedStudentId = normalizeStudentId(studentId);
+  } catch {
+    return;
+  }
+
+  const previousDetails = portalSharedState.detailsCache[normalizedStudentId];
+
+  if (!previousDetails) {
+    return;
+  }
+
+  const nextDetails: PortalStudentDetails = {
+    mockExams: input.mockExams ?? previousDetails.mockExams,
+    mockScores: input.mockScores ?? previousDetails.mockScores,
+    physicalTests: input.physicalTests ?? previousDetails.physicalTests,
+    physicalRecords: input.physicalRecords ?? previousDetails.physicalRecords,
+    loadedAt: Date.now(),
+  };
+
+  setPortalSharedState({
+    detailsCache: {
+      ...portalSharedState.detailsCache,
+      [normalizedStudentId]: nextDetails,
+    },
+  });
+}
+
 export async function ensurePortalSharedStudentDetails(
   studentId: string,
   loader: () => Promise<Omit<PortalStudentDetails, "loadedAt">>

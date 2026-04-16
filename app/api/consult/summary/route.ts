@@ -13,6 +13,7 @@ const summaryCache = new Map<
     data: unknown;
   }
 >();
+const summaryRequestCache = new Map<string, Promise<unknown>>();
 
 async function safeJson(res: Response) {
   const text = await res.text();
@@ -91,15 +92,31 @@ export async function POST(req: Request) {
       return Response.json(cached.data, { status: 200 });
     }
 
-    const res = await fetch(
-      `${APPS_SCRIPT_URL}?action=getConsultSummary&student_ids=${encodeURIComponent(studentIds.join(","))}&_ts=${Date.now()}`,
-      { cache: "no-store" }
-    );
-    let result = await safeJson(res);
+    const inFlightRequest = summaryRequestCache.get(cacheKey);
+    const result = inFlightRequest
+      ? await inFlightRequest
+      : await (async () => {
+          const requestPromise = (async () => {
+            try {
+              const res = await fetch(
+                `${APPS_SCRIPT_URL}?action=getConsultSummary&student_ids=${encodeURIComponent(studentIds.join(","))}`,
+                { cache: "no-store" }
+              );
+              let nextResult = await safeJson(res);
 
-    if (!res.ok || (result.ok === false && hasUnsupportedActionError(result as Record<string, unknown>))) {
-      result = await fetchConsultFilledMapFallback(studentIds);
-    }
+              if (!res.ok || (nextResult.ok === false && hasUnsupportedActionError(nextResult as Record<string, unknown>))) {
+                nextResult = await fetchConsultFilledMapFallback(studentIds);
+              }
+
+              return nextResult;
+            } finally {
+              summaryRequestCache.delete(cacheKey);
+            }
+          })();
+
+          summaryRequestCache.set(cacheKey, requestPromise);
+          return requestPromise;
+        })();
 
     summaryCache.set(cacheKey, {
       fetchedAt: Date.now(),

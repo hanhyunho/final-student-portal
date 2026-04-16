@@ -1,9 +1,10 @@
 export const dynamic = "force-dynamic";
 
-import { getBranchesSheet } from "@/lib/sheets";
+import { getBranchesSheet, invalidateSheetCache } from "@/lib/sheets";
 
 const SAVE_STUDENT_ACTION = "saveStudent";
 const BRANCH_LOOKUP_CACHE_TTL_MS = 15_000;
+const STUDENTS_LIST_CACHE_TTL_MS = 10_000;
 
 const APPS_SCRIPT_URL =
   process.env.APPS_SCRIPT_URL ||
@@ -45,6 +46,8 @@ type BranchLookupCacheState = {
 
 let branchLookupCache: BranchLookupCacheState | null = null;
 let branchLookupPromise: Promise<Map<string, string>> | null = null;
+const studentsListCache = new Map<string, { expiresAt: number; result: RouteResult }>();
+const studentsListRequestCache = new Map<string, Promise<RouteResult>>();
 
 function stringValue(value: unknown) {
   return String(value ?? "").trim();
@@ -223,6 +226,40 @@ function buildSaveStudentBody(payload: unknown) {
   };
 }
 
+function getStudentsCacheKey(req: Request) {
+  const url = new URL(req.url);
+  const examId = stringValue(url.searchParams.get("exam_id"));
+  return examId ? `exam:${examId}` : "all";
+}
+
+function readStudentsListCache(cacheKey: string) {
+  const cached = studentsListCache.get(cacheKey);
+
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    studentsListCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached.result;
+}
+
+function writeStudentsListCache(cacheKey: string, result: RouteResult) {
+  studentsListCache.set(cacheKey, {
+    expiresAt: Date.now() + STUDENTS_LIST_CACHE_TTL_MS,
+    result,
+  });
+}
+
+function invalidateStudentsDataCache() {
+  studentsListCache.clear();
+  studentsListRequestCache.clear();
+  invalidateSheetCache(["students"]);
+}
+
 async function forwardToAppsScript(payload: Record<string, unknown>): Promise<RouteResult> {
   let responseStatus: number | null = null;
   let rawText = "";
@@ -369,10 +406,24 @@ async function normalizeStudentResponse(result: RouteResult): Promise<RouteResul
 }
 
 async function getFromAppsScript(req: Request): Promise<RouteResult> {
-  const requestUrl = req.url;
-  let responseStatus: number | null = null;
-  let rawText = "";
-  let parsedResult: unknown = null;
+  const cacheKey = getStudentsCacheKey(req);
+  const cached = readStudentsListCache(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  const inFlightRequest = studentsListRequestCache.get(cacheKey);
+
+  if (inFlightRequest) {
+    return inFlightRequest;
+  }
+
+  const requestPromise = (async () => {
+    const requestUrl = req.url;
+    let responseStatus: number | null = null;
+    let rawText = "";
+    let parsedResult: unknown = null;
 
   try {
     const url = new URL(req.url);
@@ -440,6 +491,10 @@ async function getFromAppsScript(req: Request): Promise<RouteResult> {
         });
       }
 
+      if (normalized.ok === true) {
+        writeStudentsListCache(cacheKey, normalized);
+      }
+
       return normalized;
     } catch (error: unknown) {
       logRouteError({
@@ -475,7 +530,14 @@ async function getFromAppsScript(req: Request): Promise<RouteResult> {
       success: false,
       error: `Apps Script 조회 실패: ${error instanceof Error ? error.message : String(error)}`,
     };
+  } finally {
+    studentsListRequestCache.delete(cacheKey);
   }
+
+  })();
+
+  studentsListRequestCache.set(cacheKey, requestPromise);
+  return requestPromise;
 }
 
 export async function POST(req: Request) {
@@ -485,6 +547,7 @@ export async function POST(req: Request) {
     const result = await forwardToAppsScript(forwardBody);
 
     if (isSaveSuccess(result)) {
+      invalidateStudentsDataCache();
       return buildSaveSuccessResponse(result);
     }
 
@@ -523,6 +586,7 @@ export async function PUT(req: Request) {
     const result = await forwardToAppsScript(forwardBody);
 
     if (isSaveSuccess(result)) {
+      invalidateStudentsDataCache();
       return buildSaveSuccessResponse(result);
     }
 
@@ -561,6 +625,10 @@ export async function DELETE(req: Request) {
       action: "deleteStudent",
       ...(body && typeof body === "object" ? body : {}),
     });
+
+    if (result.ok) {
+      invalidateStudentsDataCache();
+    }
 
     return Response.json({ ...result, targetUrl: APPS_SCRIPT_URL }, {
       status: result.ok ? 200 : result.statusCode === 400 ? 400 : result.statusCode === 404 ? 404 : 500,

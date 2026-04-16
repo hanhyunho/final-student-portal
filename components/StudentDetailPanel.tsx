@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { memo, useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -140,7 +140,7 @@ const MOCK_EXAM_ROW_ORDER: Array<{ key: MockExamGroupKey; label: string }> = [
   { key: "suneung", label: "수능" },
 ];
 
-export function StudentDetailPanel({
+function StudentDetailPanelComponent({
   student,
   mockScores = [],
   mockExams = [],
@@ -158,16 +158,9 @@ export function StudentDetailPanel({
   s,
 }: StudentDetailPanelProps) {
   const isPrintMode = renderMode === "print";
-  const [mockChartType, setMockChartType] = useState<ChartType>("bar");
-  const [physicalChartType, setPhysicalChartType] = useState<ChartType>("bar");
-  const [chartPreferencesReady, setChartPreferencesReady] = useState(false);
-  const [isMobileViewport, setIsMobileViewport] = useState(false);
-
-  useEffect(() => {
-    setMockChartType(readStoredChartType(CHART_TYPE_STORAGE_KEYS.mockExam));
-    setPhysicalChartType(readStoredChartType(CHART_TYPE_STORAGE_KEYS.physical));
-    setChartPreferencesReady(true);
-  }, []);
+  const [mockChartType, setMockChartType] = useState<ChartType>(() => readStoredChartType(CHART_TYPE_STORAGE_KEYS.mockExam));
+  const [physicalChartType, setPhysicalChartType] = useState<ChartType>(() => readStoredChartType(CHART_TYPE_STORAGE_KEYS.physical));
+  const [isMobileViewport, setIsMobileViewport] = useState(() => getIsMobileViewport());
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -176,8 +169,6 @@ export function StudentDetailPanel({
 
     const mediaQuery = window.matchMedia("(max-width: 767px)");
     const updateViewport = () => setIsMobileViewport(mediaQuery.matches);
-
-    updateViewport();
 
     if (typeof mediaQuery.addEventListener === "function") {
       mediaQuery.addEventListener("change", updateViewport);
@@ -189,47 +180,42 @@ export function StudentDetailPanel({
   }, []);
 
   useEffect(() => {
-    if (!chartPreferencesReady) {
-      return;
-    }
-
     persistChartType(CHART_TYPE_STORAGE_KEYS.mockExam, mockChartType);
-  }, [chartPreferencesReady, mockChartType]);
+  }, [mockChartType]);
 
   useEffect(() => {
-    if (!chartPreferencesReady) {
-      return;
-    }
-
     persistChartType(CHART_TYPE_STORAGE_KEYS.physical, physicalChartType);
-  }, [chartPreferencesReady, physicalChartType]);
+  }, [physicalChartType]);
 
-  const mockExamTableRows = buildMockExamTableRows(mockScores, mockExams);
-  const mockChartTitles = buildMockChartTitles(student, mockScores);
+  const mockExamTableRows = useMemo(() => buildMockExamTableRows(mockScores, mockExams), [mockExams, mockScores]);
+  const mockChartTitles = useMemo(() => buildMockChartTitles(student, mockScores), [mockScores, student]);
+  const mockSubjectCharts = useMemo(
+    () => ({
+      korean_std: buildMockSubjectSeries(mockChartData, "korean_std"),
+      math_std: buildMockSubjectSeries(mockChartData, "math_std"),
+      inquiry1_std: buildMockSubjectSeries(mockChartData, "inquiry1_std"),
+      inquiry2_std: buildMockSubjectSeries(mockChartData, "inquiry2_std"),
+      korean_pct: buildMockSubjectSeries(mockChartData, "korean_pct"),
+      math_pct: buildMockSubjectSeries(mockChartData, "math_pct"),
+      inquiry1_pct: buildMockSubjectSeries(mockChartData, "inquiry1_pct"),
+      inquiry2_pct: buildMockSubjectSeries(mockChartData, "inquiry2_pct"),
+    }),
+    [mockChartData]
+  );
+  const physicalMetricCharts = useMemo(
+    () => ({
+      back_strength: buildPhysicalMetricSeries(physicalChartData, "back_strength_record"),
+      medicine_ball: buildPhysicalMetricSeries(physicalChartData, "medicine_ball_record"),
+      standing_jump: buildPhysicalMetricSeries(physicalChartData, "standing_jump_record"),
+      run_10m: buildPhysicalMetricSeries(physicalChartData, "run_10m_record"),
+      sit_reach: buildPhysicalMetricSeries(physicalChartData, "sit_reach_record"),
+      run_20m: buildPhysicalMetricSeries(physicalChartData, "run_20m_record"),
+    }),
+    [physicalChartData]
+  );
+  const physicalRecordRows = useMemo(() => [...physicalChartData].reverse(), [physicalChartData]);
 
-  const mockSubjectCharts = {
-    korean_std: buildMockSubjectSeries(mockChartData, "korean_std"),
-    math_std: buildMockSubjectSeries(mockChartData, "math_std"),
-    inquiry1_std: buildMockSubjectSeries(mockChartData, "inquiry1_std"),
-    inquiry2_std: buildMockSubjectSeries(mockChartData, "inquiry2_std"),
-    korean_pct: buildMockSubjectSeries(mockChartData, "korean_pct"),
-    math_pct: buildMockSubjectSeries(mockChartData, "math_pct"),
-    inquiry1_pct: buildMockSubjectSeries(mockChartData, "inquiry1_pct"),
-    inquiry2_pct: buildMockSubjectSeries(mockChartData, "inquiry2_pct"),
-  };
-
-  const physicalMetricCharts = {
-    back_strength: buildPhysicalMetricSeries(physicalChartData, "back_strength_record"),
-    medicine_ball: buildPhysicalMetricSeries(physicalChartData, "medicine_ball_record"),
-    standing_jump: buildPhysicalMetricSeries(physicalChartData, "standing_jump_record"),
-    run_10m: buildPhysicalMetricSeries(physicalChartData, "run_10m_record"),
-    sit_reach: buildPhysicalMetricSeries(physicalChartData, "sit_reach_record"),
-    run_20m: buildPhysicalMetricSeries(physicalChartData, "run_20m_record"),
-  };
-
-  const physicalRecordRows = [...physicalChartData].reverse();
-
-  const styles: { [key: string]: React.CSSProperties } = {
+  const styles: { [key: string]: React.CSSProperties } = useMemo(() => ({
     detailCard: {
       background: isPrintMode ? "#ffffff" : portalTheme.gradients.card,
       padding: isPrintMode ? "0" : "clamp(16px, 3vw, 24px)",
@@ -691,7 +677,7 @@ export function StudentDetailPanel({
       gap: "10px",
       padding: "2px 0",
     },
-  };
+  }), [isMobileViewport, isPrintMode, sticky]);
 
   if (!student) {
     return (
@@ -1350,6 +1336,14 @@ function readStoredChartType(storageKey: string): ChartType {
   } catch {
     return "bar";
   }
+}
+
+function getIsMobileViewport() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+
+  return window.matchMedia("(max-width: 767px)").matches;
 }
 
 function persistChartType(storageKey: string, value: ChartType) {
@@ -2075,3 +2069,30 @@ function MetricChartCard({
     </div>
   );
 }
+
+function areStudentDetailPanelPropsEqual(
+  prev: Readonly<StudentDetailPanelProps>,
+  next: Readonly<StudentDetailPanelProps>
+) {
+  return (
+    prev.student === next.student &&
+    prev.mockScores === next.mockScores &&
+    prev.mockExams === next.mockExams &&
+    prev.mockChartData === next.mockChartData &&
+    prev.physicalChartData === next.physicalChartData &&
+    prev.canManage === next.canManage &&
+    prev.sticky === next.sticky &&
+    prev.showActions === next.showActions &&
+    prev.renderMode === next.renderMode &&
+    prev.badgeLabel === next.badgeLabel &&
+    prev.onEdit === next.onEdit &&
+    prev.onDelete === next.onDelete &&
+    prev.onShowDetail === next.onShowDetail &&
+    prev.getAverageNumber === next.getAverageNumber &&
+    prev.getGradeBadgeStyle === next.getGradeBadgeStyle &&
+    prev.getBranchLabel === next.getBranchLabel &&
+    prev.s === next.s
+  );
+}
+
+export const StudentDetailPanel = memo(StudentDetailPanelComponent, areStudentDetailPanelPropsEqual);

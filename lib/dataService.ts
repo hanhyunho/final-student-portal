@@ -221,7 +221,7 @@ export type ApiResponse<T> = {
   ok: boolean;
   error?: string;
   data?: T;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 function s(value: unknown) {
@@ -464,6 +464,10 @@ async function safeJson(res: Response) {
   }
 }
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 const COLLECTION_CACHE_TTL_MS = 5_000;
 const collectionCache = new Map<string, { expiresAt: number; data: unknown }>();
 const collectionRequestCache = new Map<string, Promise<ApiResponse<unknown>>>();
@@ -549,10 +553,10 @@ async function fetchCollectionWithCache<T>({
         ok: true,
         data,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         ok: false,
-        error: `${fallbackError}: ${error?.message || String(error)}`,
+        error: `${fallbackError}: ${getErrorMessage(error)}`,
       };
     } finally {
       collectionRequestCache.delete(cacheKey);
@@ -616,10 +620,10 @@ export async function createStudent(student: Student): Promise<ApiResponse<Stude
       ok: true,
       data: result.student || student,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       ok: false,
-      error: `Failed to create student: ${error?.message || String(error)}`,
+      error: `Failed to create student: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -649,10 +653,10 @@ export async function updateStudent(student: Student): Promise<ApiResponse<Stude
       ok: true,
       data: result.student || student,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       ok: false,
-      error: `Failed to update student: ${error?.message || String(error)}`,
+      error: `Failed to update student: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -679,10 +683,10 @@ export async function deleteStudent(studentId: string): Promise<ApiResponse<void
     invalidateCollectionCache("students:");
 
     return { ok: true };
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       ok: false,
-      error: `Failed to delete student: ${error?.message || String(error)}`,
+      error: `Failed to delete student: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -719,10 +723,10 @@ export async function getExams(): Promise<ApiResponse<Exam[]>> {
       ok: true,
       data: Array.isArray(result.exams) ? result.exams : [],
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       ok: false,
-      error: `Failed to fetch exams: ${error?.message || String(error)}`,
+      error: `Failed to fetch exams: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -755,10 +759,10 @@ export async function createBranch(branch: Branch): Promise<ApiResponse<Branch>>
       ok: true,
       data: (result.data as Branch | undefined) || branch,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       ok: false,
-      error: `Failed to create branch: ${error?.message || String(error)}`,
+      error: `Failed to create branch: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -791,10 +795,10 @@ export async function updateBranch(branch: Branch): Promise<ApiResponse<Branch>>
       ok: true,
       data: (result.data as Branch | undefined) || branch,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       ok: false,
-      error: `Failed to update branch: ${error?.message || String(error)}`,
+      error: `Failed to update branch: ${getErrorMessage(error)}`,
     };
   }
 }
@@ -824,10 +828,10 @@ export async function deleteBranch(branchId: string): Promise<ApiResponse<void>>
     invalidateCollectionCache("branches:");
 
     return { ok: true };
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       ok: false,
-      error: `Failed to delete branch: ${error?.message || String(error)}`,
+      error: `Failed to delete branch: ${getErrorMessage(error)}`,
     };
   }
 }

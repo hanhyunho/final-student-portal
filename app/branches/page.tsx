@@ -179,8 +179,14 @@ function removeBranchFromList(branches: Branch[], branchId: string) {
 export default function BranchesPage() {
   const branchesSnapshot = usePortalSharedBranches();
   const studentsSnapshot = usePortalSharedStudents();
-  const safeBranchesSnapshot = Array.isArray(branchesSnapshot) ? branchesSnapshot : [];
-  const safeStudentsSnapshot = Array.isArray(studentsSnapshot) ? studentsSnapshot : [];
+  const safeBranchesSnapshot = useMemo(
+    () => (Array.isArray(branchesSnapshot) ? branchesSnapshot : []),
+    [branchesSnapshot]
+  );
+  const safeStudentsSnapshot = useMemo(
+    () => (Array.isArray(studentsSnapshot) ? studentsSnapshot : []),
+    [studentsSnapshot]
+  );
   const timerRef = useRef<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { portalLayout } from "@/lib/theme";
 
@@ -23,16 +23,18 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 function useAccountSession() {
-  const [session, setSession] = useState<AccountSession | null>(null);
+  const [session] = useState<AccountSession | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
 
-  useEffect(() => {
     try {
       const raw = sessionStorage.getItem(PORTAL_ACCOUNT_SESSION_KEY);
-      if (raw) setSession(JSON.parse(raw) as AccountSession);
+      return raw ? (JSON.parse(raw) as AccountSession) : null;
     } catch {
-      // ignore
+      return null;
     }
-  }, []);
+  });
 
   return session;
 }

@@ -17,28 +17,8 @@ async function safeJson(res: Response) {
   }
 }
 
-async function forwardToAppsScript(action: string, payload: any) {
-  try {
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify({
-        action,
-        ...payload,
-      }),
-      cache: "no-store",
-    });
-
-    const result = await safeJson(res);
-    return result;
-  } catch (error: any) {
-    return {
-      ok: false,
-      error: `Apps Script call failed: ${error?.message || String(error)}`,
-    };
-  }
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function GET() {
@@ -55,11 +35,11 @@ export async function GET() {
     return Response.json(result, {
       status: result.ok ? 200 : 500,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return Response.json(
       {
         ok: false,
-        error: `Failed to fetch exams: ${error?.message || String(error)}`,
+        error: `Failed to fetch exams: ${getErrorMessage(error)}`,
       },
       { status: 500 }
     );

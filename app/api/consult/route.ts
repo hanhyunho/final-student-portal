@@ -13,6 +13,7 @@ const consultCache = new Map<
     data: unknown;
   }
 >();
+const consultRequestCache = new Map<string, Promise<unknown>>();
 
 async function safeJson(res: Response) {
   const text = await res.text();
@@ -56,6 +57,34 @@ function invalidateConsultCacheForStudent(studentId: string) {
       consultCache.delete(key);
     }
   }
+
+  for (const key of consultRequestCache.keys()) {
+    if (key.startsWith(`${studentId}:`)) {
+      consultRequestCache.delete(key);
+    }
+  }
+}
+
+async function fetchConsultResponse(cacheKey: string, url: string) {
+  const inFlightRequest = consultRequestCache.get(cacheKey);
+
+  if (inFlightRequest) {
+    return inFlightRequest;
+  }
+
+  const requestPromise = (async () => {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      const result = await safeJson(res);
+      setCachedConsultResponse(cacheKey, result);
+      return result;
+    } finally {
+      consultRequestCache.delete(cacheKey);
+    }
+  })();
+
+  consultRequestCache.set(cacheKey, requestPromise);
+  return requestPromise;
 }
 
 export async function GET(req: Request) {
@@ -72,21 +101,17 @@ export async function GET(req: Request) {
     }
 
     if (all === "true") {
-      const res = await fetch(
-        `${APPS_SCRIPT_URL}?action=getConsultRecord&student_id=${encodeURIComponent(studentId)}&all=true&_ts=${Date.now()}`,
-        { cache: "no-store" }
+      const result = await fetchConsultResponse(
+        cacheKey,
+        `${APPS_SCRIPT_URL}?action=getConsultRecord&student_id=${encodeURIComponent(studentId)}&all=true`
       );
-      const result = await safeJson(res);
-      setCachedConsultResponse(cacheKey, result);
       return Response.json(result, { status: 200 });
     }
 
-    const res = await fetch(
-      `${APPS_SCRIPT_URL}?action=getConsultRecord&student_id=${encodeURIComponent(studentId)}&consult_type=${encodeURIComponent(consultType)}&_ts=${Date.now()}`,
-      { cache: "no-store" }
+    const result = await fetchConsultResponse(
+      cacheKey,
+      `${APPS_SCRIPT_URL}?action=getConsultRecord&student_id=${encodeURIComponent(studentId)}&consult_type=${encodeURIComponent(consultType)}`
     );
-    const result = await safeJson(res);
-    setCachedConsultResponse(cacheKey, result);
     return Response.json(result, { status: 200 });
   } catch (error: unknown) {
     return Response.json(

@@ -165,15 +165,6 @@ function pickExamFields(source: Partial<Student>) {
 
 const EXAM_DRAFT_KEY_PREFIX = "draft_exam";
 const EXAM_DRAFT_DEBOUNCE_MS = 800;
-const physicalFieldKeys = [
-  "back_strength_value",
-  "run_10m_value",
-  "medicine_ball_value",
-  "sit_reach_value",
-  "standing_jump_value",
-  "run_20m_value",
-] as const;
-
 const emptyPhysicalForm = {
   back_strength_value: "",
   run_10m_value: "",
@@ -616,7 +607,7 @@ export function StudentModal({
     examScrollPositionsRef.current[currentExamId] = leftPanelRef.current.scrollTop;
   }, [currentExamId]);
 
-  const getExamScoreFields = (examId: string) => {
+  const getExamScoreFields = useCallback((examId: string) => {
     const resolvedExamId = getResolvedExamId(examId);
     if (examScores[resolvedExamId]) return examScores[resolvedExamId];
     if (examScores[examId]) return examScores[examId];
@@ -631,7 +622,7 @@ export function StudentModal({
     }
 
     return {};
-  };
+  }, [examScores, getResolvedExamId]);
 
   const setExamScoreFields = (
     examId: string,
@@ -708,7 +699,7 @@ export function StudentModal({
       history_raw: s(nextScores.history_raw),
       history_grade: s(nextScores.history_grade),
     }));
-  }, [examScores, getDraftStudentId, readExamDraft, student, getExamScoreFields]);
+  }, [getDraftStudentId, getResolvedExamId, readExamDraft, student, getExamScoreFields]);
 
   // Handle exam change with warning for unsaved changes
   const handleExamChange = useCallback((newExamId: string) => {
@@ -755,22 +746,7 @@ export function StudentModal({
 
   const handleExamSelect = useCallback((examId: string) => {
     handleExamChange(getResolvedExamId(examId));
-  }, [handleExamChange]);
-
-  // Handle field changes for exam score fields
-  const handleExamFieldChange = useCallback((field: string, value: string) => {
-    setForm(prev => ({ ...prev, [field]: value }));
-    if (currentExamId) {
-      setExamScores(prev => ({
-        ...prev,
-        [currentExamId]: {
-          ...(prev[currentExamId] || {}),
-          [field]: value
-        }
-      }));
-      setHasUnsavedExamChanges(true);
-    }
-  }, [currentExamId]);;
+  }, [getResolvedExamId, handleExamChange]);
 
   // Helper to check if an exam has any entered data
   const hasExamData = (examId: string): boolean => {
@@ -832,7 +808,6 @@ export function StudentModal({
     if (!isOpen) return;
 
     if (mode === "add") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOpenSections(prev => ({
         ...prev,
         basic: true,
@@ -1026,7 +1001,7 @@ export function StudentModal({
       setSelectedPhysicalTestId(nextPhysicalTestId);
       loadPhysicalRecord(nextPhysicalTestId);
     }
-  }, [branches, initialExamId, initialLoginStatus, isOpen, loadPhysicalRecord, mode, physicalRecords, physicalTests, selectedPhysicalTestId, student]);
+  }, [branches, getResolvedExamId, initialExamId, initialLoginStatus, isOpen, loadPhysicalRecord, mode, physicalRecords, physicalTests, selectedPhysicalTestId, student]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1199,15 +1174,17 @@ export function StudentModal({
 
       // Save all exam scores without intermediate refresh or duplicate success banners.
       if (onSaveExamScores) {
-        for (const [examId, scores] of Object.entries(nextExamScores)) {
-          if (examId && Object.keys(scores).length > 0) {
-            hasSavedExamScores = true;
-            await onSaveExamScores(examId, scores, savedStudentContext, {
+        const examSaveTasks = Object.entries(nextExamScores)
+          .filter(([examId, scores]) => !!examId && Object.keys(scores).length > 0)
+          .map(([examId, scores]) =>
+            onSaveExamScores(examId, scores, savedStudentContext, {
               skipRefresh: true,
               suppressFeedback: true,
-            });
-          }
-        }
+            })
+          );
+
+        hasSavedExamScores = examSaveTasks.length > 0;
+        await Promise.all(examSaveTasks);
       }
 
       setExamScores(nextExamScores);
@@ -2094,6 +2071,7 @@ export function StudentModal({
                 <div
                   key={exam.examId}
                   className={`${classes.examCard} ${getExamStatusClassName(exam.examId)} ${getResolvedExamId(exam.examId) === currentExamId ? classes.examCardActive : ""}`}
+                  title={getExamSummary(exam.examId)}
                   style={{
                     ...styles.examSummaryCard,
                     ...(getResolvedExamId(exam.examId) === currentExamId ? styles.examSummaryCardSelected : {}),

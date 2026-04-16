@@ -119,7 +119,7 @@ export function AdminDashboard({
   consultFilledMap,
 }: AdminDashboardProps) {
   const bannerStyle = feedback ? getFeedbackPalette(feedback.type) : null;
-  const [visibleCount, setVisibleCount] = useState("10");
+  const [visibleCount, setVisibleCount] = useState("30");
 
   const visibleStudents = useMemo(() => {
     const limit = Number(visibleCount);
@@ -224,19 +224,16 @@ export function AdminDashboard({
               </select>
 
               <select value={sortType} onChange={(event) => onSortTypeChange(event.target.value)} style={compactSelectStyle}>
-                <option value="default">기본순</option>
                 <option value="name">이름순</option>
-                <option value="studentNo">학번순</option>
-                <option value="avgDesc">평균 높은순</option>
-                <option value="koreanDesc">국어 높은순</option>
-                <option value="mathDesc">수학 높은순</option>
-                <option value="englishDesc">영어 높은순</option>
+                <option value="grade">학년순</option>
+                <option value="loginStatus">로그인여부순</option>
+                <option value="status">상태순</option>
               </select>
 
               <select value={visibleCount} onChange={(event) => setVisibleCount(event.target.value)} style={countSelectStyle}>
-                <option value="10">10명</option>
                 <option value="20">20명</option>
                 <option value="30">30명</option>
+                <option value="ALL">전체</option>
               </select>
             </div>
 
@@ -267,7 +264,7 @@ export function AdminDashboard({
                   다음
                 </button>
                 {canManageStudents ? (
-                  <button style={secondaryButtonStyle} onClick={onEdit} disabled={!selectedStudent}>
+                  <button style={softRedButtonStyle} onClick={onEdit} disabled={!selectedStudent}>
                     수정
                   </button>
                 ) : null}
@@ -464,9 +461,20 @@ const secondaryButtonStyle: React.CSSProperties = {
 
 const dangerButtonStyle: React.CSSProperties = {
   ...portalButtonStyles.warning,
-  padding: '10px 14px',
-  fontSize: '14px',
+  padding: "10px 14px",
+  fontSize: "14px",
+  cursor: "pointer",
+  border: "1px solid rgba(185, 28, 28, 0.16)",
+  background: "linear-gradient(135deg, #ef6b64 0%, #dc4d41 100%)",
+};
+
+const softRedButtonStyle: React.CSSProperties = {
+  ...portalButtonStyles.primary,
+  padding: "10px 14px",
+  fontSize: "14px",
   cursor: 'pointer',
+  border: "1px solid rgba(185, 28, 28, 0.14)",
+  background: "linear-gradient(135deg, #f28a83 0%, #e7685f 100%)",
 };
 
 const primaryButtonStyle: React.CSSProperties = {
@@ -474,6 +482,8 @@ const primaryButtonStyle: React.CSSProperties = {
   padding: "10px 16px",
   fontSize: "14px",
   cursor: "pointer",
+  border: "1px solid rgba(185, 28, 28, 0.16)",
+  background: "linear-gradient(135deg, #ef7c74 0%, #de5a4f 100%)",
 };
 
 const tableSurfaceStyle: React.CSSProperties = {

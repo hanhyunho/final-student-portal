@@ -24,12 +24,13 @@ export function StudentRowStatusPanel({
 }: StudentRowStatusPanelProps) {
   const [selectedTab, setSelectedTab] = useState(initialValue || tabs[0] || "");
   const resolvedSelectedTab = activeTab ?? (persistClickState ? selectedTab : "");
+  const effectiveTint = savedStyle === "success" ? "green" : tint;
 
   const renderButton = (tab: string) => {
     const isActive = tab === resolvedSelectedTab;
     const isFilled = filledTabs.includes(tab);
     const stateClassName = isFilled
-      ? tint === "blue"
+      ? effectiveTint === "blue"
         ? isActive
           ? classes.filledBlueActive
           : classes.filledBlue
@@ -37,7 +38,7 @@ export function StudentRowStatusPanel({
         ? classes.filledGreenActive
         : classes.filledGreen
       : isActive
-      ? tint === "blue"
+      ? effectiveTint === "blue"
         ? classes.activeBlue
         : classes.activeGreen
       : "";

@@ -32,6 +32,7 @@ import {
   ensurePortalSharedStudentDetails,
   getPortalSharedStudentDetails,
   hasPortalSharedStudentDetails,
+  mergePortalSharedStudentDetails,
   removePortalSharedStudentDetails,
   removePortalSharedStudent,
   resetPortalSharedStore,
@@ -51,13 +52,10 @@ import { resolveConsultType, type ConsultType } from "@/lib/consult-data";
 import { portalButtonStyles, portalLayout, portalTheme } from "@/lib/theme";
 
 type SortType =
-  | "default"
   | "name"
-  | "studentNo"
-  | "avgDesc"
-  | "koreanDesc"
-  | "mathDesc"
-  | "englishDesc";
+  | "grade"
+  | "loginStatus"
+  | "status";
 
 type ModalMode = "add" | "edit";
 
@@ -995,7 +993,7 @@ function HomeContent() {
   const [branchFilter, setBranchFilter] = useState("ALL");
   const [loginFilter, setLoginFilter] = useState("ALL");
   const [studentStatusFilter, setStudentStatusFilter] = useState("ALL");
-  const [sortType, setSortType] = useState<SortType>("default");
+  const [sortType, setSortType] = useState<SortType>("name");
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1101,11 +1099,11 @@ function HomeContent() {
   const canManageStudents = isSuperAdmin || isBranchManager;
   const portalScopeKey = useMemo(() => buildPortalScopeKey(currentAccount), [currentAccount]);
 
-  const getBranchLabel = (branchId: string | undefined) => {
+  const getBranchLabel = useCallback((branchId: string | undefined) => {
     const resolvedBranchId = resolveBranchId(branches, branchId);
     const found = branches.find((branch) => s(branch.branch_id).trim() === resolvedBranchId);
     return found ? s(found.branch_name).trim() : s(branchId).trim() || "-";
-  };
+  }, [branches]);
 
   const clearLocalPortalDetails = useCallback(() => {
     setMockExams([]);
@@ -1488,13 +1486,21 @@ function HomeContent() {
     return false;
   }, [currentBranchId, currentStudentId, isBranchManager, isStudentRole, isSuperAdmin]);
 
-  const blockUnauthorizedAction = (message: string) => {
+  const blockUnauthorizedAction = useCallback((message: string) => {
     setFeedback({ type: "error", message });
-  };
+  }, []);
 
   const branchOptions = useMemo(
     () => (isSuperAdmin ? ["ALL", ...scopedBranches.map((b) => s(b.branch_id)).filter(Boolean)] : scopedBranches.map((b) => s(b.branch_id)).filter(Boolean)),
     [isSuperAdmin, scopedBranches]
+  );
+
+  const getStudentLoginStatus = useCallback(
+    (student: Student) => {
+      const matchedAccount = findAccountForStudent(accounts, student);
+      return normalizeStudentLoginStatus(student.login_status || matchedAccount?.is_active);
+    },
+    [accounts]
   );
 
   const filteredStudents = useMemo(() => {
@@ -1525,27 +1531,41 @@ function HomeContent() {
       case "name":
         sorted.sort((a, b) => s(a.name).localeCompare(s(b.name), "ko"));
         break;
-      case "studentNo":
-        sorted.sort((a, b) => s(a.student_no).localeCompare(s(b.student_no), "ko"));
+      case "grade":
+        sorted.sort((a, b) => {
+          const gradeDiff = Number(s(a.grade)) - Number(s(b.grade));
+          if (gradeDiff !== 0 && Number.isFinite(gradeDiff)) {
+            return gradeDiff;
+          }
+          return s(a.name).localeCompare(s(b.name), "ko");
+        });
         break;
-      case "avgDesc":
-        sorted.sort((a, b) => getAverageNumber(b) - getAverageNumber(a));
+      case "loginStatus":
+        sorted.sort((a, b) => {
+          const left = getStudentLoginStatus(a);
+          const right = getStudentLoginStatus(b);
+          if (left !== right) {
+            if (left === "active") return -1;
+            if (right === "active") return 1;
+          }
+          return s(a.name).localeCompare(s(b.name), "ko");
+        });
         break;
-      case "koreanDesc":
-        sorted.sort((a, b) => getScoreNumber(b.korean_raw) - getScoreNumber(a.korean_raw));
-        break;
-      case "mathDesc":
-        sorted.sort((a, b) => getScoreNumber(b.math_raw) - getScoreNumber(a.math_raw));
-        break;
-      case "englishDesc":
-        sorted.sort((a, b) => getScoreNumber(b.english_raw) - getScoreNumber(a.english_raw));
+      case "status":
+        sorted.sort((a, b) => {
+          const statusCompare = s(a.status).localeCompare(s(b.status), "ko");
+          if (statusCompare !== 0) {
+            return statusCompare;
+          }
+          return s(a.name).localeCompare(s(b.name), "ko");
+        });
         break;
       default:
         break;
     }
 
     return dedupeStudents(sorted);
-  }, [accounts, branchFilter, loginFilter, scopedStudents, search, sortType, studentStatusFilter]);
+  }, [accounts, branchFilter, getStudentLoginStatus, loginFilter, scopedStudents, search, sortType, studentStatusFilter]);
 
   const consultPrefetchStudentIds = useMemo(
     () =>
@@ -1554,14 +1574,6 @@ function HomeContent() {
         .map((student) => s(student.student_id).trim())
         .filter(Boolean),
     [filteredStudents]
-  );
-
-  const getStudentLoginStatus = useCallback(
-    (student: Student) => {
-      const matchedAccount = findAccountForStudent(accounts, student);
-      return normalizeStudentLoginStatus(student.login_status || matchedAccount?.is_active);
-    },
-    [accounts]
   );
 
   const dashboardBaseStudents = useMemo(() => dedupeStudents(scopedStudents.filter(isValidStudentRecord)), [scopedStudents]);
@@ -1934,7 +1946,7 @@ function HomeContent() {
 
     setModalMode("add");
     setIsModalOpen(true);
-  }, [canManageStudents]);
+  }, [blockUnauthorizedAction, canManageStudents]);
 
   const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -2111,7 +2123,7 @@ function HomeContent() {
 
     setModalMode("edit");
     setIsModalOpen(true);
-  }, [canAccessStudentRecord, canManageStudents, loadStudentDetails, selectedStudent]);
+  }, [blockUnauthorizedAction, canAccessStudentRecord, canManageStudents, loadStudentDetails, selectedStudent]);
 
   const handleModalSave = async (student: Student & { loginStatus?: string }): Promise<Student | null> => {
     if (!canManageStudents) {
@@ -2295,8 +2307,6 @@ function HomeContent() {
       const previousRawStudents = latestStudentsRef.current;
       const previousAccounts = latestAccountsRef.current;
       const previousCurrentAccount = currentAccount;
-      const loginChanged = !!linkedAccount && normalizeStudentLoginStatus(baseStudent.login_status) !== nextLoginStatus;
-
       try {
         setFeedback(null);
 
@@ -2502,9 +2512,14 @@ function HomeContent() {
       ((saveResult.data as MockScore | undefined) || nextScoreRow),
       branches
     );
-
-    removePortalSharedStudentDetails(studentContext.student_id);
     setMockScores((prev) => upsertMockScoreRecord(prev, savedScore));
+    const cachedDetails = getPortalSharedStudentDetails(studentContext.student_id);
+
+    if (cachedDetails) {
+      mergePortalSharedStudentDetails(studentContext.student_id, {
+        mockScores: upsertMockScoreRecord(cachedDetails.mockScores, savedScore),
+      });
+    }
 
     if (!options?.skipRefresh && !options?.suppressFeedback) {
       setFeedback({
@@ -2550,9 +2565,15 @@ function HomeContent() {
     };
 
     await savePhysicalRecord(nextRecord);
+    const normalizedRecord = normalizeBranchScopedRow(nextRecord, branches);
+    setPhysicalRecords((prev) => upsertPhysicalRecordEntry(prev, normalizedRecord));
+    const cachedDetails = getPortalSharedStudentDetails(s(nextRecord.student_id).trim());
 
-  removePortalSharedStudentDetails(s(nextRecord.student_id).trim());
-    setPhysicalRecords((prev) => upsertPhysicalRecordEntry(prev, normalizeBranchScopedRow(nextRecord, branches)));
+    if (cachedDetails) {
+      mergePortalSharedStudentDetails(s(nextRecord.student_id).trim(), {
+        physicalRecords: upsertPhysicalRecordEntry(cachedDetails.physicalRecords, normalizedRecord),
+      });
+    }
 
     if (!options?.skipRefresh && !options?.suppressFeedback) {
       setFeedback({
@@ -2691,11 +2712,8 @@ function HomeContent() {
     detailStudentMockChartData,
     detailStudentMockScores,
     detailStudentPhysicalChartData,
-    getAverageNumber,
     getBranchLabel,
-    getGradeBadgeStyle,
     mockExams,
-    s,
     selectedStudent,
     selectedStudentMockChartData,
     selectedStudentMockScores,

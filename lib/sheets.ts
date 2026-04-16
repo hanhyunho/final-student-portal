@@ -23,9 +23,27 @@ function normalizeHeaderName(header: string) {
   return normalizeCellValue(header).split(/\s+/)[0] ?? "";
 }
 
-const SHEET_CACHE_TTL_MS = 1000 * 60 * 30;
+const DEFAULT_SHEET_CACHE_TTL_MS = 15_000;
+const SHEET_CACHE_TTL_BY_NAME: Record<string, number> = {
+  branches: 60_000,
+  accounts: 30_000,
+  students: 15_000,
+  mock_exams: 5 * 60_000,
+  mock_scores: 15_000,
+  physical_tests: 5 * 60_000,
+  physical_records: 15_000,
+  yogang_cards: 30 * 60_000,
+  yogang_details: 30 * 60_000,
+  yogang_silgi: 30 * 60_000,
+  logo: 30 * 60_000,
+  "濡쒓퀬二쇱냼": 30 * 60_000,
+};
 const sheetRowsCache = new Map<string, { expiresAt: number; rows: Array<Record<string, string>> }>();
 const sheetRowsRequestCache = new Map<string, Promise<Array<Record<string, string>>>>();
+
+function getSheetCacheTtl(sheetName: string) {
+  return SHEET_CACHE_TTL_BY_NAME[sheetName] ?? DEFAULT_SHEET_CACHE_TTL_MS;
+}
 
 function getSheetId() {
   const sheetId = process.env.NEXT_PUBLIC_SHEET_ID;
@@ -155,7 +173,7 @@ async function fetchSheetRowsCached(sheetName: string) {
   const requestPromise = fetchSheetRows(sheetName)
     .then((rows) => {
       sheetRowsCache.set(sheetName, {
-        expiresAt: Date.now() + SHEET_CACHE_TTL_MS,
+        expiresAt: Date.now() + getSheetCacheTtl(sheetName),
         rows,
       });
       return rows;
@@ -176,6 +194,19 @@ export function getConfiguredSheetId() {
   return getSheetId();
 }
 
+export function invalidateSheetCache(sheetNames?: string[]) {
+  if (!sheetNames || sheetNames.length === 0) {
+    sheetRowsCache.clear();
+    sheetRowsRequestCache.clear();
+    return;
+  }
+
+  sheetNames.forEach((sheetName) => {
+    sheetRowsCache.delete(sheetName);
+    sheetRowsRequestCache.delete(sheetName);
+  });
+}
+
 export async function getSheetDebugInfo(sheetName: string) {
   const text = await fetchSheetText(sheetName);
   const matrix = parseCsvMatrix(text);
@@ -190,32 +221,32 @@ export async function getSheetDebugInfo(sheetName: string) {
 }
 
 export async function getBranchesSheet() {
-  return asRows<Branch>(await fetchSheetRows("branches"));
+  return asRows<Branch>(await fetchSheetRowsCached("branches"));
 }
 
 export async function getAccountsSheet() {
-  return asRows<Account>(await fetchSheetRows("accounts"));
+  return asRows<Account>(await fetchSheetRowsCached("accounts"));
 }
 
 export async function getStudentsSheet() {
-  const rows = await fetchSheetRows("students");
+  const rows = await fetchSheetRowsCached("students");
   return asRows<Student>(rows.filter(isValidStudentRow));
 }
 
 export async function getMockExamsSheet() {
-  return asRows<MockExam>(await fetchSheetRows("mock_exams"));
+  return asRows<MockExam>(await fetchSheetRowsCached("mock_exams"));
 }
 
 export async function getMockScoresSheet() {
-  return asRows<MockScore>(await fetchSheetRows("mock_scores"));
+  return asRows<MockScore>(await fetchSheetRowsCached("mock_scores"));
 }
 
 export async function getPhysicalTestsSheet() {
-  return asRows<PhysicalTest>(await fetchSheetRows("physical_tests"));
+  return asRows<PhysicalTest>(await fetchSheetRowsCached("physical_tests"));
 }
 
 export async function getPhysicalRecordsSheet() {
-  return asRows<PhysicalRecord>(await fetchSheetRows("physical_records"));
+  return asRows<PhysicalRecord>(await fetchSheetRowsCached("physical_records"));
 }
 
 export async function getUniversityLogosSheet() {
