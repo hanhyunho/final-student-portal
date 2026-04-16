@@ -61,10 +61,6 @@ interface AdminDashboardProps {
   onAdd: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
-  onEdit?: () => void;
-  onDelete?: () => void;
-  onEdit?: () => void;
-  onDelete?: () => void;
   onQuickStatusChange?: (student: Student, updates: { loginStatus?: string; status?: string }) => Promise<void>;
   getAverageNumber: (student: Student) => number;
   getStudentLoginStatus: (student: Student) => string;
