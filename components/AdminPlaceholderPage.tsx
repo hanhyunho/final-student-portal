@@ -46,7 +46,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "Arial, sans-serif",
   },
   container: {
-    maxWidth: "1480px",
+    maxWidth: "1360px",
     margin: "0 auto",
     paddingTop: "16px",
   },

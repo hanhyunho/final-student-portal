@@ -240,6 +240,7 @@ async function forwardToAppsScript(payload: Record<string, unknown>): Promise<Ro
       },
       body: JSON.stringify(payload),
       cache: "no-store",
+      redirect: "follow",
     });
 
     responseStatus = res.status;
@@ -557,12 +558,12 @@ export async function DELETE(req: Request) {
   try {
     const body = await req.json();
     const result = await forwardToAppsScript({
-      action: "delete",
+      action: "deleteStudent",
       ...(body && typeof body === "object" ? body : {}),
     });
 
     return Response.json({ ...result, targetUrl: APPS_SCRIPT_URL }, {
-      status: result.ok ? 200 : 500,
+      status: result.ok ? 200 : result.statusCode === 400 ? 400 : result.statusCode === 404 ? 404 : 500,
     });
   } catch (error: unknown) {
     logRouteError({

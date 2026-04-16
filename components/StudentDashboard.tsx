@@ -52,7 +52,8 @@ export function StudentDashboard({
         <div
           style={{
             ...bannerStyle,
-            border: "1px solid",
+            borderStyle: "solid",
+            borderWidth: "1px",
             borderRadius: "16px",
             padding: "14px 16px",
             fontSize: "14px",

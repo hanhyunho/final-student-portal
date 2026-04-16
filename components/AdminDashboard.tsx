@@ -59,6 +59,13 @@ interface AdminDashboardProps {
   onMoveSelection: (direction: "prev" | "next") => void;
   onPrint: () => void;
   onAdd: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  onQuickStatusChange?: (student: Student, updates: { loginStatus?: string; status?: string }) => Promise<void>;
   getAverageNumber: (student: Student) => number;
   getStudentLoginStatus: (student: Student) => string;
   getStatusStyle: (status: string | undefined) => React.CSSProperties;
@@ -103,6 +110,9 @@ export function AdminDashboard({
   onMoveSelection,
   onPrint,
   onAdd,
+  onEdit,
+  onDelete,
+  onQuickStatusChange,
   getAverageNumber,
   getStudentLoginStatus,
   getStatusStyle,
@@ -131,7 +141,8 @@ export function AdminDashboard({
         <div
           style={{
             ...bannerStyle,
-            border: "1px solid",
+            borderStyle: "solid",
+            borderWidth: "1px",
             borderRadius: "16px",
             padding: "14px 16px",
             fontSize: "14px",
@@ -260,6 +271,16 @@ export function AdminDashboard({
                   다음
                 </button>
                 {canManageStudents ? (
+                  <button style={secondaryButtonStyle} onClick={onEdit} disabled={!selectedStudent}>
+                    수정
+                  </button>
+                ) : null}
+                {canManageStudents ? (
+                  <button style={dangerButtonStyle} onClick={onDelete} disabled={!selectedStudent}>
+                    삭제
+                  </button>
+                ) : null}
+                {canManageStudents ? (
                   <button style={primaryButtonStyle} onClick={onAdd}>
                     + 학생 추가
                   </button>
@@ -275,9 +296,11 @@ export function AdminDashboard({
                 students={visibleStudents}
                 selectedStudentId={selectedStudentId}
                 loading={loading}
+                canManageStudents={canManageStudents}
                 onSelectStudent={onSelectStudent}
                 onDoubleClick={onOpenDetail}
                 onOpenDetail={onOpenDetail}
+                onQuickStatusChange={onQuickStatusChange}
                 getBranchLabel={getBranchLabel}
                 getStudentLoginStatus={getStudentLoginStatus}
                 getStatusStyle={getStatusStyle}
@@ -441,6 +464,13 @@ const secondaryButtonStyle: React.CSSProperties = {
   padding: "10px 14px",
   fontSize: "14px",
   cursor: "pointer",
+};
+
+const dangerButtonStyle: React.CSSProperties = {
+  ...portalButtonStyles.warning,
+  padding: '10px 14px',
+  fontSize: '14px',
+  cursor: 'pointer',
 };
 
 const primaryButtonStyle: React.CSSProperties = {

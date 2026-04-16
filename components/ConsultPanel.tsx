@@ -219,9 +219,10 @@ export function ConsultPanel({
           setMeta((prev) => ({ ...prev, [type]: { ...prev[type], saved: false } }));
         }, 2500);
       } catch (error) {
-        console.error("[ConsultPanel] save error", error);
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error("[ConsultPanel] save error", msg);
         setMeta((prev) => ({ ...prev, [type]: { saving: false, saved: false } }));
-        alert("저장 중 오류가 발생했습니다.");
+        alert(`저장 실패: ${msg}\n\nApps Script가 최신 버전으로 배포되어 있는지 확인해 주세요.`);
       }
     },
     [memos, onFilledTypesChange, studentId, studentInfo]

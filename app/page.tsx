@@ -26,6 +26,7 @@ import {
   resolveAccountBranchId,
 } from "@/lib/dataService";
 import { resolveExamSaveGroup } from "@/lib/examSaveState";
+import { MOCK_SCORE_FIELD_KEYS, pickMockScoreFields } from "@/lib/mockScoreFields";
 import {
   ensurePortalSharedLightData,
   ensurePortalSharedStudentDetails,
@@ -84,33 +85,6 @@ type SaveHandlerOptions = {
 };
 
 const PORTAL_ACCOUNT_SESSION_KEY = "portal_account";
-
-const SCORE_FIELD_KEYS = [
-  "korean_name",
-  "korean_raw",
-  "korean_std",
-  "korean_pct",
-  "korean_grade",
-  "math_name",
-  "math_raw",
-  "math_std",
-  "math_pct",
-  "math_grade",
-  "english_raw",
-  "english_grade",
-  "inquiry1_name",
-  "inquiry1_raw",
-  "inquiry1_std",
-  "inquiry1_pct",
-  "inquiry1_grade",
-  "inquiry2_name",
-  "inquiry2_raw",
-  "inquiry2_std",
-  "inquiry2_pct",
-  "inquiry2_grade",
-  "history_raw",
-  "history_grade",
-] as const;
 
 const DEFAULT_PHYSICAL_TESTS: PhysicalTest[] = [
   {
@@ -359,6 +333,27 @@ function buildGeneratedId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function generateNextStudentId(existingStudents: Student[] = []) {
+  let maxValue = 0;
+
+  existingStudents.forEach((student) => {
+    const studentId = s(student.student_id).trim();
+    const match = studentId.match(/^STU(\d+)$/i);
+
+    if (!match) {
+      return;
+    }
+
+    const numericValue = Number(match[1]);
+
+    if (Number.isFinite(numericValue) && numericValue > maxValue) {
+      maxValue = numericValue;
+    }
+  });
+
+  return `STU${String(maxValue + 1).padStart(10, "0")}`;
+}
+
 function getSortableDateValue(rawDate: unknown) {
   const normalizedDate = s(rawDate).trim();
   const dateMatch = normalizedDate.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
@@ -375,44 +370,21 @@ function pickScoreFields(score?: MockScore | null): Partial<Student> {
     return {};
   }
 
-  return {
-    korean_name: s(score.korean_name),
-    korean_raw: s(score.korean_raw),
-    korean_std: s(score.korean_std),
-    korean_pct: s(score.korean_pct),
-    korean_grade: s(score.korean_grade),
-    math_name: s(score.math_name),
-    math_raw: s(score.math_raw),
-    math_std: s(score.math_std),
-    math_pct: s(score.math_pct),
-    math_grade: s(score.math_grade),
-    english_raw: s(score.english_raw),
-    english_grade: s(score.english_grade),
-    inquiry1_name: s(score.inquiry1_name),
-    inquiry1_raw: s(score.inquiry1_raw),
-    inquiry1_std: s(score.inquiry1_std),
-    inquiry1_pct: s(score.inquiry1_pct),
-    inquiry1_grade: s(score.inquiry1_grade),
-    inquiry2_name: s(score.inquiry2_name),
-    inquiry2_raw: s(score.inquiry2_raw),
-    inquiry2_std: s(score.inquiry2_std),
-    inquiry2_pct: s(score.inquiry2_pct),
-    inquiry2_grade: s(score.inquiry2_grade),
-    history_raw: s(score.history_raw),
-    history_grade: s(score.history_grade),
-  };
+  return pickMockScoreFields(score);
 }
 
 function buildStudentSheetRow(
   student: Student & { loginStatus?: string; login_status?: string },
-  existingStudent?: Student | null
+  existingStudent?: Student | null,
+  existingStudents: Student[] = []
 ) {
   const now = new Date().toISOString();
   const loginStatus = normalizeStudentLoginStatus(student.loginStatus ?? student.login_status);
+  const nextScoreFields = pickMockScoreFields(student);
 
   return {
     ...existingStudent,
-    student_id: s(student.student_id).trim() || s(existingStudent?.student_id).trim() || buildGeneratedId("student"),
+    student_id: s(student.student_id).trim() || s(existingStudent?.student_id).trim() || generateNextStudentId(existingStudents),
     student_no: s(student.student_no).trim(),
     name: s(student.name).trim(),
     gender: s(student.gender).trim(),
@@ -427,6 +399,15 @@ function buildStudentSheetRow(
     status: s(student.status).trim() || "등록",
     memo: s(student.memo).trim(),
     exam_id: s(student.exam_id).trim(),
+    ...nextScoreFields,
+    back_strength: s(student.back_strength).trim(),
+    run_10m: s(student.run_10m).trim(),
+    medicine_ball: s(student.medicine_ball).trim(),
+    sit_reach: s(student.sit_reach).trim(),
+    standing_jump: s(student.standing_jump).trim(),
+    run_20m: s(student.run_20m).trim(),
+    physical_total_score: s(student.physical_total_score).trim(),
+    physical_memo: s(student.physical_memo).trim(),
     login_status: loginStatus,
     created_at: s(existingStudent?.created_at).trim() || now,
     updated_at: now,
@@ -555,7 +536,15 @@ function mergeStudentsWithSheetData({
       return accumulator;
     }, {});
     const currentExamId = s(student.exam_id).trim() || s(studentScores[0]?.exam_id).trim();
-    const primaryScore = studentScores.find((score) => s(score.exam_id).trim() === currentExamId) || studentScores[0] || null;
+    // Use group matching so "3mo" finds the score stored under "EXAM202503".
+    // Without this, primaryScore falls back to studentScores[0] (most recent exam),
+    // causing student.math_pct etc. to show wrong-exam data in the modal form.
+    const currentExamGroup = resolveExamSaveGroup(currentExamId);
+    const primaryScore = studentScores.find((score) => {
+      const scoreExamId = s(score.exam_id).trim();
+      if (scoreExamId === currentExamId) return true;
+      return currentExamGroup !== null && resolveExamSaveGroup(scoreExamId) === currentExamGroup;
+    }) || studentScores[0] || null;
 
     const studentPhysicalRecords = [...(physicalByStudentId.get(studentId) || [])].sort((left, right) => {
       const dateDiff = (physicalDateByTestId.get(s(right.test_id)) || -1) - (physicalDateByTestId.get(s(left.test_id)) || -1);
@@ -900,14 +889,19 @@ function upsertStudentRecord(students: Student[], nextStudent: Student) {
 function upsertMockScoreRecord(scores: MockScore[], nextScore: MockScore) {
   const nextStudentId = s(nextScore.student_id).trim();
   const nextExamId = s(nextScore.exam_id).trim();
+  const nextExamGroup = resolveExamSaveGroup(nextExamId);
 
   if (!nextStudentId || !nextExamId) {
     return scores;
   }
 
-  const existingIndex = scores.findIndex(
-    (score) => s(score.student_id).trim() === nextStudentId && s(score.exam_id).trim() === nextExamId
-  );
+  const existingIndex = scores.findIndex((score) => {
+    if (s(score.student_id).trim() !== nextStudentId) return false;
+    const scoreExamId = s(score.exam_id).trim();
+    if (scoreExamId === nextExamId) return true;
+    // Also match by exam group to handle exam_id format migrations (e.g. "3모" → "3mo")
+    return nextExamGroup !== null && resolveExamSaveGroup(scoreExamId) === nextExamGroup;
+  });
 
   if (existingIndex === -1) {
     return [nextScore, ...scores];
@@ -988,6 +982,7 @@ function HomeContent() {
   const initRef = useRef(false);
   const portalLoadRef = useRef("");
   const latestAccountsRef = useRef<Account[]>([]);
+  const latestStudentsRef = useRef<Student[]>([]);
   const [rawStudents, setRawStudents] = useState<Student[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -1076,6 +1071,10 @@ function HomeContent() {
   useEffect(() => {
     latestAccountsRef.current = accounts;
   }, [accounts]);
+
+  useEffect(() => {
+    latestStudentsRef.current = rawStudents;
+  }, [rawStudents]);
 
   const students = useMemo(
     () =>
@@ -2143,7 +2142,7 @@ function HomeContent() {
       );
       const linkedAccount = findAccountForStudent(accounts, existingStudent || selectedStudent || nextStudentInput);
 
-      const nextStudentRow = buildStudentSheetRow(nextStudentInput, existingStudent);
+      const nextStudentRow = buildStudentSheetRow(nextStudentInput, existingStudent, rawStudents);
 
       if (process.env.NODE_ENV === "development") {
         console.info("[handleModalSave] payload", nextStudentRow);
@@ -2249,12 +2248,207 @@ function HomeContent() {
     }
   };
 
+  const handleQuickStatusChange = useCallback(
+    async (student: Student, updates: { loginStatus?: string; status?: string }) => {
+      if (!canManageStudents) {
+        blockUnauthorizedAction("학생 수정 권한이 없습니다.");
+        throw new Error("학생 수정 권한이 없습니다.");
+      }
+
+      if (!canAccessStudentRecord(student)) {
+        blockUnauthorizedAction("이 학생 데이터는 수정할 수 없습니다.");
+        throw new Error("이 학생 데이터는 수정할 수 없습니다.");
+      }
+
+      const existingStudent = rawStudents.find(
+        (item) => s(item.student_id).trim() === s(student.student_id).trim()
+      );
+      const baseStudent = existingStudent || student;
+      const nextLoginStatus = normalizeStudentLoginStatus(updates.loginStatus ?? student.login_status);
+      const nextStatus = s(updates.status ?? baseStudent.status).trim() || "등록";
+      const nextStudentInput = isBranchManager
+        ? { ...baseStudent, branch_id: currentBranchId, status: nextStatus, login_status: nextLoginStatus }
+        : { ...baseStudent, status: nextStatus, login_status: nextLoginStatus };
+      const linkedAccount = findAccountForStudent(accounts, baseStudent);
+      const optimisticStudent = normalizeStudentRecord(
+        {
+          ...baseStudent,
+          ...nextStudentInput,
+          status: nextStatus,
+          login_status: nextLoginStatus,
+          updated_at: new Date().toISOString(),
+        } as Student,
+        branches
+      );
+      const optimisticAccount = normalizeAccountRecord(
+        linkedAccount
+          ? {
+              ...linkedAccount,
+              student_id: s(optimisticStudent.student_id).trim(),
+              branch_id: s(optimisticStudent.branch_id).trim(),
+              name: s(optimisticStudent.name).trim(),
+              is_active: nextLoginStatus === "inactive" ? "FALSE" : "TRUE",
+              role: s(linkedAccount.role).trim() || "student",
+            }
+          : null
+      );
+      const previousRawStudents = latestStudentsRef.current;
+      const previousAccounts = latestAccountsRef.current;
+      const previousCurrentAccount = currentAccount;
+      const loginChanged = !!linkedAccount && normalizeStudentLoginStatus(baseStudent.login_status) !== nextLoginStatus;
+
+      try {
+        setFeedback(null);
+
+        setRawStudents((prev) => upsertStudentRecord(prev, optimisticStudent));
+        upsertPortalSharedStudent(optimisticStudent);
+        setSelectedStudentId(s(optimisticStudent.student_id).trim());
+        removePortalSharedStudentDetails(s(optimisticStudent.student_id).trim());
+
+        if (optimisticAccount) {
+          const nextAccounts = upsertAccountRecord(previousAccounts, optimisticAccount);
+          latestAccountsRef.current = nextAccounts;
+          setAccounts(nextAccounts);
+          syncPortalSharedLightData({ accounts: nextAccounts });
+
+          if (currentAccount) {
+            const normalizedCurrentAccount = normalizeAccountRecord(currentAccount);
+            const sameCurrentAccount =
+              normalizedCurrentAccount &&
+              ((s(normalizedCurrentAccount.account_id).trim() &&
+                s(normalizedCurrentAccount.account_id).trim() === s(optimisticAccount.account_id).trim()) ||
+                (s(normalizedCurrentAccount.login_id).trim() &&
+                  s(normalizedCurrentAccount.login_id).trim() === s(optimisticAccount.login_id).trim()));
+
+            if (sameCurrentAccount) {
+              setCurrentAccount(optimisticAccount);
+              persistAccountSession(optimisticAccount);
+              syncPortalSharedCurrentAccount(optimisticAccount);
+            }
+          }
+        }
+
+        const nextStudentRow = buildStudentSheetRow(
+          {
+            ...nextStudentInput,
+            loginStatus: nextLoginStatus,
+            login_status: nextLoginStatus,
+            status: nextStatus,
+          },
+          existingStudent,
+          rawStudents
+        );
+
+        const saveResult = await saveStudent(nextStudentRow);
+
+        if (saveResult.success !== true && saveResult.ok !== true) {
+          throw new Error(
+            saveResult.error ||
+              ("message" in saveResult && typeof saveResult.message === "string" ? saveResult.message : "") ||
+              "학생 상태 저장 중 오류가 발생했습니다."
+          );
+        }
+
+        const savedStudent = normalizeStudentRecord(
+          ({
+            ...(((saveResult.data as Student | undefined) || nextStudentRow) as Student),
+            status: nextStatus,
+            login_status: nextLoginStatus,
+          } as Student),
+          branches
+        );
+
+        const normalizedSavedAccount = normalizeAccountRecord(
+          (saveResult.account as Account | undefined) ||
+            (linkedAccount
+              ? {
+                  ...linkedAccount,
+                  student_id: s(savedStudent.student_id).trim(),
+                  branch_id: s(savedStudent.branch_id).trim(),
+                  name: s(savedStudent.name).trim(),
+                  is_active: nextLoginStatus === "inactive" ? "FALSE" : "TRUE",
+                  role: s(linkedAccount.role).trim() || "student",
+                }
+              : null)
+        );
+
+        if (normalizedSavedAccount) {
+          const nextAccounts = upsertAccountRecord(latestAccountsRef.current, normalizedSavedAccount);
+
+          latestAccountsRef.current = nextAccounts;
+          setAccounts(nextAccounts);
+          syncPortalSharedLightData({ accounts: nextAccounts });
+
+          if (currentAccount) {
+            const normalizedCurrentAccount = normalizeAccountRecord(currentAccount);
+            const sameCurrentAccount =
+              normalizedCurrentAccount &&
+              ((s(normalizedCurrentAccount.account_id).trim() &&
+                s(normalizedCurrentAccount.account_id).trim() === s(normalizedSavedAccount.account_id).trim()) ||
+                (s(normalizedCurrentAccount.login_id).trim() &&
+                  s(normalizedCurrentAccount.login_id).trim() === s(normalizedSavedAccount.login_id).trim()));
+
+            if (sameCurrentAccount) {
+              setCurrentAccount(normalizedSavedAccount);
+              persistAccountSession(normalizedSavedAccount);
+              syncPortalSharedCurrentAccount(normalizedSavedAccount);
+            }
+          }
+        }
+
+        removePortalSharedStudentDetails(s(savedStudent.student_id).trim());
+        setRawStudents((prev) => upsertStudentRecord(prev, savedStudent));
+        upsertPortalSharedStudent(savedStudent);
+        setSelectedStudentId(s(savedStudent.student_id).trim());
+        setFeedback({
+          type: "success",
+          message: "학생 상태를 바로 수정했습니다.",
+        });
+      } catch (error) {
+        const message = getErrorMessage(error, "학생 상태 저장 중 오류가 발생했습니다.");
+        console.error(error);
+        latestAccountsRef.current = previousAccounts;
+        setRawStudents(previousRawStudents);
+        setAccounts(previousAccounts);
+        syncPortalSharedLightData({ accounts: previousAccounts });
+
+        const previousStudent = previousRawStudents.find(
+          (item) => s(item.student_id).trim() === s(baseStudent.student_id).trim()
+        );
+
+        if (previousStudent) {
+          upsertPortalSharedStudent(previousStudent);
+        }
+
+        if (previousCurrentAccount) {
+          setCurrentAccount(previousCurrentAccount);
+          persistAccountSession(previousCurrentAccount);
+          syncPortalSharedCurrentAccount(previousCurrentAccount);
+        }
+
+        setFeedback({ type: "error", message });
+        throw error instanceof Error ? error : new Error(message);
+      }
+    },
+    [
+      accounts,
+      blockUnauthorizedAction,
+      branches,
+      canAccessStudentRecord,
+      canManageStudents,
+      currentAccount,
+      currentBranchId,
+      isBranchManager,
+      rawStudents,
+    ]
+  );
+
   const handleExamScoreSave = async (
     examId: string,
     scores: Partial<Student>,
     targetStudent?: Pick<Student, "student_id" | "name" | "branch_id">,
     options?: SaveHandlerOptions
-  ) => {
+  ): Promise<Partial<Student> | null> => {
     if (!canManageStudents) {
       throw new Error("시험 성적 저장 권한이 없습니다.");
     }
@@ -2274,17 +2468,23 @@ function HomeContent() {
     }
 
     const incomingExamGroup = resolveExamSaveGroup(s(examId).trim());
+    // Use examId directly — it's already the correct sheet format (e.g. "EXAM202511")
+    // from examOptions. Never inherit exam_id from existingScore which may be stale/wrong.
+    const resolvedExamId = s(examId).trim();
+
     const existingScore = scopedMockScores.find((item) => {
       if (s(item.student_id).trim() !== studentContext.student_id) return false;
       const itemExamId = s(item.exam_id).trim();
-      if (itemExamId === s(examId).trim()) return true;
+      if (itemExamId === resolvedExamId) return true;
       return incomingExamGroup !== null && resolveExamSaveGroup(itemExamId) === incomingExamGroup;
     });
     const now = new Date().toISOString();
-    const resolvedExamId = s(existingScore?.exam_id || examId).trim();
+    // Only propagate score_id if it's a valid SCR format to prevent corrupt IDs from recurring.
+    const rawExistingScoreId = s(existingScore?.score_id).trim();
+    const validExistingScoreId = /^SCR\d+$/i.test(rawExistingScoreId) ? rawExistingScoreId : "";
     const nextScoreRow: MockScore = {
       ...existingScore,
-      score_id: s(existingScore?.score_id).trim(),
+      score_id: validExistingScoreId,
       student_id: studentContext.student_id,
       student_name: studentContext.name,
       branch_id: studentContext.branch_id,
@@ -2293,14 +2493,18 @@ function HomeContent() {
       updated_at: now,
     };
 
-    SCORE_FIELD_KEYS.forEach((fieldName) => {
+    MOCK_SCORE_FIELD_KEYS.forEach((fieldName) => {
       nextScoreRow[fieldName] = s(scores[fieldName as keyof Student]).trim();
     });
 
-    await saveMockScore(nextScoreRow);
+    const saveResult = await saveMockScore(nextScoreRow);
+    const savedScore = normalizeBranchScopedRow(
+      ((saveResult.data as MockScore | undefined) || nextScoreRow),
+      branches
+    );
 
-  removePortalSharedStudentDetails(studentContext.student_id);
-    setMockScores((prev) => upsertMockScoreRecord(prev, normalizeBranchScopedRow(nextScoreRow, branches)));
+    removePortalSharedStudentDetails(studentContext.student_id);
+    setMockScores((prev) => upsertMockScoreRecord(prev, savedScore));
 
     if (!options?.skipRefresh && !options?.suppressFeedback) {
       setFeedback({
@@ -2308,6 +2512,8 @@ function HomeContent() {
         message: "시험 성적을 저장했습니다.",
       });
     }
+
+    return pickMockScoreFields(savedScore);
   };
 
   const handlePhysicalRecordSave = async (record: PhysicalRecord, options?: SaveHandlerOptions) => {
@@ -2679,6 +2885,13 @@ function HomeContent() {
             onMoveSelection={moveSelection}
             onPrint={handlePrint}
             onAdd={openAddModal}
+            onEdit={() => {
+              void openEditModal();
+            }}
+            onDelete={() => {
+              void handleDelete();
+            }}
+            onQuickStatusChange={handleQuickStatusChange}
             onOpenExamEditor={handleOpenExamEditor}
             onOpenConsultPanel={handleOpenConsultPanel}
             consultFilledMap={consultFilledMap}
@@ -2700,6 +2913,39 @@ function HomeContent() {
                 setIsDetailPopupOpen(false);
                 setDetailStudentId(null);
               }}>✕</button>
+            </div>
+            <div style={styles.detailPopupActionBar}>
+              <div style={styles.detailPopupActionBarInner}>
+                {canManageStudents ? (
+                  <button
+                    style={styles.secondaryButton}
+                    onClick={() => {
+                      setIsDetailPopupOpen(false);
+                      setDetailStudentId(null);
+                      void openEditModal();
+                    }}
+                  >
+                    수정
+                  </button>
+                ) : null}
+                {canManageStudents ? (
+                  <button style={styles.warningButton} onClick={handleDelete}>
+                    삭제
+                  </button>
+                ) : null}
+                <button style={styles.navButton} onClick={handlePrintSelected}>
+                  학생 인쇄
+                </button>
+                <button
+                  style={styles.secondaryButton}
+                  onClick={() => {
+                    setIsDetailPopupOpen(false);
+                    setDetailStudentId(null);
+                  }}
+                >
+                  닫기
+                </button>
+              </div>
             </div>
             <StudentDetailPanel
               student={detailPopupStudent}
@@ -2811,6 +3057,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: {
     maxWidth: portalLayout.containerMaxWidth,
     margin: "0 auto",
+    paddingTop: portalLayout.containerPaddingTop,
   },
   loadingFallbackCard: {
     padding: portalLayout.cardPadding,
@@ -3412,6 +3659,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: "12px 14px",
     fontSize: "14px",
     cursor: "pointer",
+    whiteSpace: "nowrap",
   },
   tableWrap: {
     overflowX: "auto",
@@ -3471,6 +3719,24 @@ const styles: { [key: string]: React.CSSProperties } = {
     border: `1px solid ${portalTheme.colors.line}`,
     height: "90vh",
     overflowY: "auto",
+  },
+  detailPopupActionBar: {
+    position: "sticky",
+    top: 0,
+    zIndex: 6,
+    marginBottom: "18px",
+    paddingBottom: "12px",
+    background: "linear-gradient(180deg, rgba(250,251,253,0.98) 0%, rgba(250,251,253,0.92) 72%, rgba(250,251,253,0) 100%)",
+  },
+  detailPopupActionBarInner: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "10px",
+    flexWrap: "wrap",
+    alignItems: "center",
+    padding: "12px 0 10px",
+    borderBottom: `1px solid ${portalTheme.colors.line}`,
+    backdropFilter: "blur(10px)",
   },
   selectedBadge: {
     display: "inline-block",
@@ -3669,7 +3935,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "left",
   },
   modalFooter: {
-    display: "flex",
+    display: "none",
     justifyContent: "flex-end",
     gap: "10px",
     marginTop: "24px",
@@ -3683,6 +3949,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "12px",
     cursor: "pointer",
     borderRadius: "10px",
+    whiteSpace: "nowrap",
     background: "#4b5563",
     border: "1px solid rgba(255,255,255,0.14)",
     color: "#ffffff",
@@ -3697,6 +3964,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "12px",
     cursor: "pointer",
     borderRadius: "10px",
+    whiteSpace: "nowrap",
   },
   primaryButton: {
     ...portalButtonStyles.primary,

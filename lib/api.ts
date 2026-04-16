@@ -1,4 +1,5 @@
 import type { MockScore, PhysicalRecord, Student } from "@/lib/dataService";
+import { pickMockScoreFields } from "@/lib/mockScoreFields";
 
 export const APPS_SCRIPT_URL =
   process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
@@ -42,6 +43,13 @@ function normalizeRow(row: Record<string, unknown>) {
   });
 
   return normalized;
+}
+
+function normalizeMockScoreRow(row: MockScore | Record<string, unknown>) {
+  return normalizeRow({
+    ...(row as Record<string, unknown>),
+    ...pickMockScoreFields(row as MockScore),
+  });
 }
 
 function isAppsScriptSuccess<T>(result: AppsScriptResponse<T>) {
@@ -216,7 +224,7 @@ export async function saveAccountStatus(row: Record<string, unknown>) {
 export async function saveMockScore(row: MockScore | Record<string, unknown>) {
   const requestBody = {
     action: APPS_SCRIPT_ACTIONS.saveMockScore,
-    row: normalizeRow(row as Record<string, unknown>),
+    row: normalizeMockScoreRow(row),
   };
 
   if (process.env.NODE_ENV !== "production") {

@@ -446,6 +446,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: {
     maxWidth: portalLayout.containerMaxWidth,
     margin: "0 auto",
+    paddingTop: portalLayout.containerPaddingTop,
     display: "flex",
     flexDirection: "column",
     gap: portalLayout.sectionGap,

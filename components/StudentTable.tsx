@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeStudentId, type Student } from "@/lib/dataService";
 import { EmptyState } from "@/components/EmptyState";
 import { StudentRowStatusPanel } from "@/components/StudentRowStatusPanel";
@@ -22,9 +22,11 @@ interface StudentTableProps {
   students: Student[];
   selectedStudentId: string | null;
   loading: boolean;
+  canManageStudents?: boolean;
   onSelectStudent: (id: string) => void;
   onDoubleClick: (id: string) => void;
   onOpenDetail: (id: string) => void;
+  onQuickStatusChange?: (student: Student, updates: { loginStatus?: string; status?: string }) => Promise<void>;
   getBranchLabel: (branchId: string | undefined) => string;
   getStudentLoginStatus: (student: Student) => string;
   getStatusStyle: (status: string | undefined) => React.CSSProperties;
@@ -39,9 +41,11 @@ function StudentTableComponent({
   students,
   selectedStudentId,
   loading,
+  canManageStudents = false,
   onSelectStudent,
   onDoubleClick,
   onOpenDetail,
+  onQuickStatusChange,
   getBranchLabel,
   getStudentLoginStatus,
   getStatusStyle,
@@ -57,7 +61,7 @@ function StudentTableComponent({
   const styles: Record<string, React.CSSProperties> = {
     tableWrap: {
       overflowX: "auto",
-      overflowY: "hidden",
+      overflowY: "visible",
       borderRadius: "18px",
     },
     table: {
@@ -230,9 +234,99 @@ function StudentTableComponent({
       justifyContent: "center",
       width: "100%",
     },
+    badgeButton: {
+      appearance: "none",
+      background: "transparent",
+      border: "none",
+      padding: 0,
+      margin: 0,
+      cursor: canManageStudents ? "pointer" : "default",
+    },
+    badgeButtonDisabled: {
+      cursor: "default",
+    },
+    inlineEditorWrap: {
+      position: "relative",
+      display: "inline-flex",
+      justifyContent: "center",
+    },
+    inlineMenu: {
+      position: "absolute",
+      top: "calc(100% + 10px)",
+      left: "50%",
+      transform: "translateX(-50%)",
+      minWidth: "132px",
+      padding: "8px",
+      borderRadius: "16px",
+      border: `1px solid ${portalTheme.colors.line}`,
+      background: "rgba(255,255,255,0.98)",
+      boxShadow: portalTheme.shadows.cardStrong,
+      display: "flex",
+      flexDirection: "column",
+      gap: "6px",
+      zIndex: 30,
+      backdropFilter: "blur(12px)",
+    },
+    inlineMenuOption: {
+      border: `1px solid ${portalTheme.colors.line}`,
+      background: portalTheme.colors.surfaceCard,
+      color: portalTheme.colors.textPrimary,
+      borderRadius: "12px",
+      padding: "8px 10px",
+      fontSize: "12px",
+      fontWeight: 800,
+      cursor: "pointer",
+      whiteSpace: "nowrap",
+      transition: "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease",
+    },
+    inlineMenuOptionActive: {
+      background: portalTheme.colors.primarySoft,
+      border: `1px solid ${portalTheme.colors.primaryTint}`,
+      color: portalTheme.colors.primaryStrong,
+    },
+    inlineMenuHint: {
+      fontSize: "11px",
+      color: portalTheme.colors.textMuted,
+      padding: "2px 4px 0",
+      textAlign: "center",
+      whiteSpace: "nowrap",
+    },
+    savingBadge: {
+      opacity: 0.7,
+      filter: "saturate(0.88)",
+    },
   };
 
   const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null);
+  const [openEditorKey, setOpenEditorKey] = useState<string | null>(null);
+  const [savingEditorKey, setSavingEditorKey] = useState<string | null>(null);
+  const editorWrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!openEditorKey) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (editorWrapRef.current && event.target instanceof Node && !editorWrapRef.current.contains(event.target)) {
+        setOpenEditorKey(null);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenEditorKey(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [openEditorKey]);
 
   const visibleStudents = useMemo(
     () => students.filter((student) => s(student.student_id).trim() && s(student.name).trim()),
@@ -314,6 +408,10 @@ function StudentTableComponent({
         return (examGroup ? getCanonicalExamId(examGroup) : s(st.exam_id).trim()) === examId;
       })?.label || "";
     const isHovered = Boolean(selectionId) && hoveredStudentId === selectionId;
+    const loginEditorKey = `${selectionId}:login`;
+    const statusEditorKey = `${selectionId}:status`;
+    const loginSaving = savingEditorKey === loginEditorKey;
+    const statusSaving = savingEditorKey === statusEditorKey;
 
     return (
       <tr
@@ -352,10 +450,124 @@ function StudentTableComponent({
           </button>
         </td>
         <td style={styles.statusCell}>
-          <span style={loginBadgeStyle}>{loginStatus}</span>
+          <div
+            ref={openEditorKey === loginEditorKey ? editorWrapRef : null}
+            style={styles.inlineEditorWrap}
+          >
+            <button
+              type="button"
+              style={{
+                ...styles.badgeButton,
+                ...(!canManageStudents || !onQuickStatusChange ? styles.badgeButtonDisabled : null),
+              }}
+              disabled={!canManageStudents || !onQuickStatusChange || loginSaving}
+              onClick={(event) => {
+                event.stopPropagation();
+
+                if (!canManageStudents || !onQuickStatusChange) {
+                  return;
+                }
+
+                setOpenEditorKey((prev) => (prev === loginEditorKey ? null : loginEditorKey));
+              }}
+            >
+              <span style={{ ...loginBadgeStyle, ...(loginSaving ? styles.savingBadge : null) }}>{loginStatus}</span>
+            </button>
+            {openEditorKey === loginEditorKey && canManageStudents && onQuickStatusChange ? (
+              <div style={styles.inlineMenu} onClick={(event) => event.stopPropagation()}>
+                {["active", "inactive"].map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    style={{
+                      ...styles.inlineMenuOption,
+                      ...(loginStatus === option ? styles.inlineMenuOptionActive : null),
+                    }}
+                    disabled={loginSaving}
+                    onClick={async (event) => {
+                      event.stopPropagation();
+
+                      if (loginStatus === option) {
+                        setOpenEditorKey(null);
+                        return;
+                      }
+
+                      try {
+                        setOpenEditorKey(null);
+                        setSavingEditorKey(loginEditorKey);
+                        await onQuickStatusChange(st, { loginStatus: option });
+                      } finally {
+                        setSavingEditorKey((prev) => (prev === loginEditorKey ? null : prev));
+                      }
+                    }}
+                  >
+                    {option}
+                  </button>
+                ))}
+                <div style={styles.inlineMenuHint}>클릭하면 바로 저장됩니다</div>
+              </div>
+            ) : null}
+          </div>
         </td>
         <td style={styles.statusCell}>
-          <span style={statusBadgeStyle}>{normalizedStudentStatus}</span>
+          <div
+            ref={openEditorKey === statusEditorKey ? editorWrapRef : null}
+            style={styles.inlineEditorWrap}
+          >
+            <button
+              type="button"
+              style={{
+                ...styles.badgeButton,
+                ...(!canManageStudents || !onQuickStatusChange ? styles.badgeButtonDisabled : null),
+              }}
+              disabled={!canManageStudents || !onQuickStatusChange || statusSaving}
+              onClick={(event) => {
+                event.stopPropagation();
+
+                if (!canManageStudents || !onQuickStatusChange) {
+                  return;
+                }
+
+                setOpenEditorKey((prev) => (prev === statusEditorKey ? null : statusEditorKey));
+              }}
+            >
+              <span style={{ ...statusBadgeStyle, ...(statusSaving ? styles.savingBadge : null) }}>{normalizedStudentStatus}</span>
+            </button>
+            {openEditorKey === statusEditorKey && canManageStudents && onQuickStatusChange ? (
+              <div style={styles.inlineMenu} onClick={(event) => event.stopPropagation()}>
+                {["등록", "휴원", "졸업", "퇴원"].map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    style={{
+                      ...styles.inlineMenuOption,
+                      ...(normalizedStudentStatus === option ? styles.inlineMenuOptionActive : null),
+                    }}
+                    disabled={statusSaving}
+                    onClick={async (event) => {
+                      event.stopPropagation();
+
+                      if (normalizedStudentStatus === option) {
+                        setOpenEditorKey(null);
+                        return;
+                      }
+
+                      try {
+                        setOpenEditorKey(null);
+                        setSavingEditorKey(statusEditorKey);
+                        await onQuickStatusChange(st, { status: option });
+                      } finally {
+                        setSavingEditorKey((prev) => (prev === statusEditorKey ? null : prev));
+                      }
+                    }}
+                  >
+                    {option}
+                  </button>
+                ))}
+                <div style={styles.inlineMenuHint}>클릭하면 바로 저장됩니다</div>
+              </div>
+            ) : null}
+          </div>
         </td>
         <td style={styles.tdExtension}>
           <div style={styles.panelCellInner}>

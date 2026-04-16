@@ -1,9 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import React, { Suspense } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import React, { Suspense, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { portalLayout } from "@/lib/theme";
+
+const PORTAL_ACCOUNT_SESSION_KEY = "portal_account";
+
+type AccountSession = {
+  account_id: string;
+  login_id: string;
+  role: string;
+  student_id: string;
+  branch_id: string;
+  name: string;
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  super_admin: "대표",
+  branch_manager: "관리자",
+  student: "학생",
+};
+
+function useAccountSession() {
+  const [session, setSession] = useState<AccountSession | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(PORTAL_ACCOUNT_SESSION_KEY);
+      if (raw) setSession(JSON.parse(raw) as AccountSession);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  return session;
+}
 
 export type AdminNavKey =
   | "student-management"
@@ -86,10 +118,57 @@ export function AdminHeader({ isSuperAdmin = false, actions = null, fallbackActi
 function AdminHeaderContent({ isSuperAdmin = false, actions = null }: AdminHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const session = useAccountSession();
   const activeKey = resolveActiveKey(pathname, searchParams.get("view"));
 
-  return <AdminHeaderShell isSuperAdmin={isSuperAdmin} actions={actions} activeKey={activeKey} />;
+  const resolvedActions = actions ?? (session ? (
+    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+      <span style={sessionStyles.name}>{session.name || session.login_id}</span>
+      <span style={sessionStyles.role}>{ROLE_LABELS[session.role] ?? session.role}</span>
+      <button
+        style={sessionStyles.logoutBtn}
+        onClick={() => {
+          sessionStorage.removeItem(PORTAL_ACCOUNT_SESSION_KEY);
+          sessionStorage.removeItem("portal_login_id");
+          router.push("/");
+        }}
+      >
+        로그아웃
+      </button>
+    </div>
+  ) : null);
+
+  return <AdminHeaderShell isSuperAdmin={isSuperAdmin || session?.role === "super_admin"} actions={resolvedActions} activeKey={activeKey} />;
 }
+
+const sessionStyles: Record<string, React.CSSProperties> = {
+  name: {
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#ffffff",
+  },
+  role: {
+    fontSize: "12px",
+    fontWeight: 700,
+    color: "rgba(255,255,255,0.7)",
+    background: "rgba(255,255,255,0.12)",
+    border: "1px solid rgba(255,255,255,0.18)",
+    borderRadius: "999px",
+    padding: "3px 10px",
+  },
+  logoutBtn: {
+    fontSize: "13px",
+    fontWeight: 800,
+    color: "#ffffff",
+    background: "rgba(255,255,255,0.13)",
+    border: "1px solid rgba(255,255,255,0.2)",
+    borderRadius: "10px",
+    padding: "7px 16px",
+    cursor: "pointer",
+    transition: "background 160ms ease",
+  },
+};
 
 function AdminHeaderShell({ isSuperAdmin, actions, activeKey }: AdminHeaderShellProps) {
   return (

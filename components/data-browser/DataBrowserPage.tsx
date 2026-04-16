@@ -44,11 +44,11 @@ export function DataBrowserPage({ title, subtitle, filters, columns, rows, accen
       style={{
         minHeight: "100vh",
         background: portalTheme.gradients.page,
-        padding: "28px 20px 40px",
+        padding: "0 20px 40px",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <div style={{ maxWidth: "1480px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "18px" }}>
+      <div style={{ maxWidth: "1360px", margin: "0 auto", paddingTop: "16px", display: "flex", flexDirection: "column", gap: "18px" }}>
         <AdminHeader isSuperAdmin fallbackActiveKey={headerActiveKey} />
 
         <section

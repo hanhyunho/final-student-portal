@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Student, Branch, MockExam, PhysicalTest, PhysicalRecord } from "@/lib/dataService";
-import { EXAM_LABELS, EXAM_SAVE_GROUPS, getCanonicalExamId, hasExamSaved, resolveExamSaveGroup } from "@/lib/examSaveState";
+import { EXAM_LABELS, EXAM_SAVE_GROUPS, EXAM_TYPE_MAP, getCanonicalExamId, hasExamSaved, resolveExamSaveGroup } from "@/lib/examSaveState";
+import { MOCK_SCORE_FIELD_KEYS, pickMockScoreFields } from "@/lib/mockScoreFields";
 import classes from "./StudentModal.module.css";
 
 interface StudentModalProps {
@@ -27,7 +28,7 @@ interface StudentModalProps {
       skipRefresh?: boolean;
       suppressFeedback?: boolean;
     }
-  ) => Promise<void>;
+  ) => Promise<Partial<Student> | null>;
   onSavePhysicalRecord?: (
     record: PhysicalRecord,
     options?: {
@@ -158,24 +159,8 @@ function getRecordField(record: PhysicalRecord, fieldName: string) {
   return (record as Record<string, unknown>)[fieldName];
 }
 
-// Exam field keys for score management - moved outside to avoid recreation
-const examFieldKeys = [
-  "korean_name","korean_raw","korean_std","korean_pct","korean_grade",
-  "math_name","math_raw","math_std","math_pct","math_grade",
-  "english_raw","english_grade",
-  "inquiry1_name","inquiry1_raw","inquiry1_std","inquiry1_pct","inquiry1_grade",
-  "inquiry2_name","inquiry2_raw","inquiry2_std","inquiry2_pct","inquiry2_grade",
-  "history_raw","history_grade"
-] as const;
-
 function pickExamFields(source: Partial<Student>) {
-  const nextFields: Partial<Student> = {};
-
-  examFieldKeys.forEach((key) => {
-    nextFields[key] = source[key];
-  });
-
-  return nextFields;
+  return pickMockScoreFields(source);
 }
 
 const EXAM_DRAFT_KEY_PREFIX = "draft_exam";
@@ -203,6 +188,23 @@ const fallbackMockExams: MockExam[] = EXAM_SAVE_GROUPS.map((group) => ({
   exam_name: EXAM_LABELS[group],
   exam_date: "",
 }));
+
+// Find scores for a given exam ID from a score map, with group-based fallback.
+// This handles the case where scores are stored under an old-format key (e.g. "suneung")
+// but the current exam button uses the new format ("EXAM202511").
+function findExamScoresFromMap(
+  scoreMap: Record<string, Partial<Student>> | null | undefined,
+  examId: string
+): Partial<Student> | null {
+  if (!scoreMap || !examId) return null;
+  if (scoreMap[examId]) return scoreMap[examId];
+  const group = resolveExamSaveGroup(examId);
+  if (!group) return null;
+  for (const [key, value] of Object.entries(scoreMap)) {
+    if (resolveExamSaveGroup(key) === group && value) return value;
+  }
+  return null;
+}
 
 export function StudentModal({
   isOpen,
@@ -265,11 +267,24 @@ export function StudentModal({
   }, [examOptions]);
 
   const examAliasMap = useMemo(() => {
-    return examOptions.reduce<Record<string, string>>((accumulator, exam) => {
+    const map = examOptions.reduce<Record<string, string>>((accumulator, exam) => {
       accumulator[exam.examId] = exam.examId;
       accumulator[exam.examLabel] = exam.examId;
       return accumulator;
     }, {});
+
+    // Also map old canonical group IDs ("3mo", "suneung") and display labels ("3모", "수능")
+    // so that stale student.exam_id values resolve to the current sheet exam ID.
+    examOptions.forEach((exam) => {
+      const group = resolveExamSaveGroup(exam.examId);
+      if (!group) return;
+      const oldCanonical = EXAM_TYPE_MAP[group]; // "3mo", "6mo", "9mo", "suneung"
+      if (oldCanonical && !map[oldCanonical]) map[oldCanonical] = exam.examId;
+      const displayLabel = EXAM_LABELS[group]; // "3모", "6모", "9모", "수능"
+      if (displayLabel && !map[displayLabel]) map[displayLabel] = exam.examId;
+    });
+
+    return map;
   }, [examOptions]);
 
   const getResolvedExamId = useCallback((examId: string) => {
@@ -603,7 +618,19 @@ export function StudentModal({
 
   const getExamScoreFields = (examId: string) => {
     const resolvedExamId = getResolvedExamId(examId);
-    return examScores[resolvedExamId] || examScores[examId] || {};
+    if (examScores[resolvedExamId]) return examScores[resolvedExamId];
+    if (examScores[examId]) return examScores[examId];
+
+    // Group-based fallback: find scores saved under any alias of the same exam
+    // (e.g. exam button "EXAM202511" should load scores stored under "suneung")
+    const group = resolveExamSaveGroup(resolvedExamId || examId);
+    if (group) {
+      for (const [key, value] of Object.entries(examScores)) {
+        if (resolveExamSaveGroup(key) === group && value) return value;
+      }
+    }
+
+    return {};
   };
 
   const setExamScoreFields = (
@@ -630,7 +657,7 @@ export function StudentModal({
     const studentId = getDraftStudentId();
     const draft = readExamDraft(studentId, resolvedExamId);
     const serverUpdatedAt = Number(new Date(student?.updated_at || 0).getTime() || 0);
-    const hasStoredScores = examFieldKeys.some(
+    const hasStoredScores = MOCK_SCORE_FIELD_KEYS.some(
       (key) => Boolean(scores[key as keyof Student])
     );
     const shouldUseDraft = Boolean(
@@ -772,9 +799,9 @@ export function StudentModal({
     return classes.examCardEmpty;
   };
 
-  // Helper to get data for the currently selected exam
+  // Helper to get data for the currently selected exam.
   const getSelectedExamData = (): Partial<Student> => {
-    return examScores[currentExamId] || {};
+    return getCurrentExamFields();
   };
 
   // Helper to get exam summary for display
@@ -939,16 +966,54 @@ export function StudentModal({
       const nextInitialExamId = getResolvedExamId(nextInitialExamSourceId);
       if (nextInitialExamId) {
         setCurrentExamId(nextInitialExamId);
-        setForm((prev) => ({
-          ...prev,
-          exam_id: nextInitialExamId,
-        }));
+
+        // Load score fields from the correct exam's data.
+        // student.math_pct etc. at top level come from primaryScore which may be
+        // a different exam. Override with the specific exam's scores here.
+        const examSpecificScores = findExamScoresFromMap(
+          (student as StudentWithExamScores).exam_scores,
+          nextInitialExamId
+        );
+        if (examSpecificScores) {
+          setForm((prev) => ({
+            ...prev,
+            exam_id: nextInitialExamId,
+            korean_name: normalizeSubjectName(examSpecificScores.korean_name),
+            korean_raw: s(examSpecificScores.korean_raw),
+            korean_std: s(examSpecificScores.korean_std),
+            korean_pct: s(examSpecificScores.korean_pct),
+            korean_grade: s(examSpecificScores.korean_grade),
+            math_name: normalizeSubjectName(examSpecificScores.math_name),
+            math_raw: s(examSpecificScores.math_raw),
+            math_std: s(examSpecificScores.math_std),
+            math_pct: s(examSpecificScores.math_pct),
+            math_grade: s(examSpecificScores.math_grade),
+            english_raw: s(examSpecificScores.english_raw),
+            english_grade: s(examSpecificScores.english_grade),
+            inquiry1_name: s(examSpecificScores.inquiry1_name),
+            inquiry1_raw: s(examSpecificScores.inquiry1_raw),
+            inquiry1_std: s(examSpecificScores.inquiry1_std),
+            inquiry1_pct: s(examSpecificScores.inquiry1_pct),
+            inquiry1_grade: s(examSpecificScores.inquiry1_grade),
+            inquiry2_name: s(examSpecificScores.inquiry2_name),
+            inquiry2_raw: s(examSpecificScores.inquiry2_raw),
+            inquiry2_std: s(examSpecificScores.inquiry2_std),
+            inquiry2_pct: s(examSpecificScores.inquiry2_pct),
+            inquiry2_grade: s(examSpecificScores.inquiry2_grade),
+            history_raw: s(examSpecificScores.history_raw),
+            history_grade: s(examSpecificScores.history_grade),
+          }));
+        } else {
+          setForm((prev) => ({ ...prev, exam_id: nextInitialExamId }));
+        }
+
         setHasUnsavedExamChanges(false);
         if (process.env.NODE_ENV !== "production") {
           console.info("[StudentModal] initial exam sync", {
             student_id: s(student.student_id).trim(),
             initialExamId: nextInitialExamSourceId,
             resolvedExamId: nextInitialExamId,
+            examSpecificScores,
           });
         }
       }
@@ -1085,10 +1150,21 @@ export function StudentModal({
         physical_memo: s(form.physical_memo).trim(),
       };
 
+      const currentExamFields = pickExamFields(form);
+      const nextExamScores = currentExamId
+        ? {
+            ...examScores,
+            [currentExamId]: {
+              ...(examScores[currentExamId] || {}),
+              ...currentExamFields,
+            },
+          }
+        : examScores;
+
       // Add all exam drafts to the payload
       const payloadWithExamScores: StudentWithExamScores = {
         ...payload,
-        exam_scores: examScores,
+        exam_scores: nextExamScores,
         loginStatus: normalizeLoginStatus(loginStatus),
       };
 
@@ -1123,7 +1199,7 @@ export function StudentModal({
 
       // Save all exam scores without intermediate refresh or duplicate success banners.
       if (onSaveExamScores) {
-        for (const [examId, scores] of Object.entries(examScores)) {
+        for (const [examId, scores] of Object.entries(nextExamScores)) {
           if (examId && Object.keys(scores).length > 0) {
             hasSavedExamScores = true;
             await onSaveExamScores(examId, scores, savedStudentContext, {
@@ -1134,6 +1210,7 @@ export function StudentModal({
         }
       }
 
+      setExamScores(nextExamScores);
       setHasUnsavedExamChanges(false);
       setSaveNotice({
         type: "success",
@@ -1207,9 +1284,19 @@ export function StudentModal({
 
       setExamScores(nextExamScores);
 
-      await onSaveExamScores(currentExamId, currentExamFields, currentStudentSnapshot, {
+      const savedExamFields = await onSaveExamScores(currentExamId, currentExamFields, currentStudentSnapshot, {
         suppressFeedback: true,
       });
+      const syncedExamFields = pickExamFields(savedExamFields || currentExamFields);
+      setExamScores((prev) => ({
+        ...prev,
+        [currentExamId]: syncedExamFields,
+      }));
+      setForm((prev) => ({
+        ...prev,
+        exam_id: currentExamId,
+        ...syncedExamFields,
+      }));
       if (process.env.NODE_ENV !== "production") {
         console.info("[StudentModal] handleExamSave:success", {
           student_id: currentStudentSnapshot.student_id,

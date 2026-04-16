@@ -60,6 +60,10 @@ function doPost(e) {
       return jsonOutput_(deleteBranch_(payload));
     }
 
+    if (action === 'deleteStudent') {
+      return jsonOutput_(deleteStudent_(payload));
+    }
+
     if (action === 'saveMockScore') {
       return jsonOutput_(_saveMockScore_(payload));
     }
@@ -70,10 +74,6 @@ function doPost(e) {
 
     if (action === 'saveConsultRecord') {
       return jsonOutput_(saveConsultRecord_(payload));
-    }
-
-    if (action === 'delete') {
-      return jsonOutput_(failResponse_('Delete action is not implemented in this file.', 400));
     }
 
     return jsonOutput_(failResponse_('Unsupported POST action', 400));
@@ -383,6 +383,109 @@ function saveStudent_(inputRow) {
   };
 }
 
+function deleteRowsByStudentId_(sheetName, studentId) {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = spreadsheet.getSheetByName(sheetName);
+
+  if (!sheet) {
+    return 0;
+  }
+
+  const values = getSheetValues_(sheet);
+
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const headers = values[0].map(stringValue_);
+  const headerMap = buildHeaderMap_(headers);
+  const studentIdColumnIndex = headerMap.student_id;
+
+  if (studentIdColumnIndex === undefined) {
+    return 0;
+  }
+
+  const rowIndexes = [];
+
+  for (var index = 1; index < values.length; index += 1) {
+    if (stringValue_(values[index][studentIdColumnIndex]) === stringValue_(studentId)) {
+      rowIndexes.push(index + 1);
+    }
+  }
+
+  for (var deleteIndex = rowIndexes.length - 1; deleteIndex >= 0; deleteIndex -= 1) {
+    sheet.deleteRow(rowIndexes[deleteIndex]);
+  }
+
+  return rowIndexes.length;
+}
+
+function deleteStudent_(inputRow) {
+  const row = normalizeRowObject_(inputRow);
+  const studentId = stringValue_(row.student_id);
+
+  if (!studentId) {
+    return failResponse_('student_id is required.', 400, {
+      action: 'deleteStudent',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const sheet = getSheet_(STUDENTS_SHEET_NAME);
+  const values = getSheetValues_(sheet);
+
+  if (values.length === 0) {
+    return failResponse_('students sheet is empty.', 500, {
+      action: 'deleteStudent',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const headers = values[0].map(stringValue_);
+  const headerMap = buildHeaderMap_(headers);
+
+  if (headerMap.student_id === undefined) {
+    return failResponse_('Missing required header: student_id', 500, {
+      action: 'deleteStudent',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const foundRowIndex = findRowIndexByStudentId_(values, headerMap.student_id, studentId);
+
+  if (foundRowIndex <= 1) {
+    return failResponse_('Student not found.', 404, {
+      action: 'deleteStudent',
+      mode: 'rejected',
+      rowIndex: null,
+    });
+  }
+
+  const deletedData = objectFromRowValues_(headers, values[foundRowIndex - 1]);
+  sheet.deleteRow(foundRowIndex);
+
+  const deletedRelated = {
+    accounts: deleteRowsByStudentId_(ACCOUNTS_SHEET_NAME, studentId),
+    mock_scores: deleteRowsByStudentId_(MOCK_SCORES_SHEET_NAME, studentId),
+    physical_records: deleteRowsByStudentId_(PHYSICAL_RECORDS_SHEET_NAME, studentId),
+    consult_records: deleteRowsByStudentId_(CONSULT_SHEET_NAME, studentId),
+  };
+
+  return {
+    ok: true,
+    success: true,
+    action: 'deleteStudent',
+    mode: 'delete',
+    rowIndex: foundRowIndex,
+    data: deletedData,
+    deletedRelated: deletedRelated,
+    message: 'Student deleted successfully.',
+  };
+}
+
 function listStudents_() {
   const sheet = getSheet_(STUDENTS_SHEET_NAME);
   const values = getSheetValues_(sheet);
@@ -494,11 +597,29 @@ function _saveMockScore_(inputRow) {
     }
   }
 
-  row.exam_id = resolvedExamId;
+  // Use incoming examId directly — already the correct sheet format (e.g. "EXAM202511").
+  // This also overwrites stale display labels ("3모", "수능", "suneung") in existing rows.
+  row.exam_id = examId;
 
-  // score_id 생성: 기존 행 없고 score_id가 비어 있으면 SCR 형식으로 자동 생성
-  if (foundRowIndex <= 1 && !stringValue_(row.score_id) && headerMap.score_id !== undefined) {
-    row.score_id = generateNextScoreId_(values, headerMap.score_id);
+  // Fix score_id: always ensure a valid SCR format ID is stored.
+  if (headerMap.score_id !== undefined) {
+    var incomingScoreIdVal = stringValue_(row.score_id);
+    var isValidScrId = /^SCR\d+$/i.test(incomingScoreIdVal);
+    if (foundRowIndex > 1) {
+      // Update mode: if incoming score_id is invalid, preserve the existing valid one
+      // or generate a new SCR ID if the existing one is also invalid.
+      var existingScoreIdVal = stringValue_(values[foundRowIndex - 1][headerMap.score_id]);
+      if (!isValidScrId) {
+        row.score_id = /^SCR\d+$/i.test(existingScoreIdVal)
+          ? existingScoreIdVal
+          : generateNextScoreId_(values, headerMap.score_id);
+      }
+    } else {
+      // Insert mode: generate a new SCR ID if incoming is not a valid SCR format.
+      if (!isValidScrId) {
+        row.score_id = generateNextScoreId_(values, headerMap.score_id);
+      }
+    }
   }
 
   const mode = foundRowIndex > 1 ? 'update' : 'insert';
@@ -1069,8 +1190,10 @@ function buildUpdatedRowValues_(headers, existingRowValues, inputRow) {
       continue;
     }
 
-    if (Object.prototype.hasOwnProperty.call(inputRow, header)) {
-      nextRowValues[index] = stringValue_(inputRow[header]);
+    var inputValue = getFieldValue_(inputRow, header);
+
+    if (inputValue !== null) {
+      nextRowValues[index] = inputValue;
     }
   }
 
@@ -1099,7 +1222,8 @@ function buildInsertedRowValues_(headers, inputRow) {
       continue;
     }
 
-    nextRowValues.push(stringValue_(inputRow[header]));
+    var inputValue = getFieldValue_(inputRow, header);
+    nextRowValues.push(inputValue === null ? '' : inputValue);
   }
 
   return nextRowValues;
@@ -1143,6 +1267,14 @@ function normalizeRowObject_(row) {
   });
 
   return nextRow;
+}
+
+function getFieldValue_(row, header) {
+  if (Object.prototype.hasOwnProperty.call(row, header)) {
+    return stringValue_(row[header]);
+  }
+
+  return null;
 }
 
 function buildCompositeKeyLog_(keyFields, row) {

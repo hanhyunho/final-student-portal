@@ -204,98 +204,29 @@ export function StudentDetailPanel({
     persistChartType(CHART_TYPE_STORAGE_KEYS.physical, physicalChartType);
   }, [chartPreferencesReady, physicalChartType]);
 
-  const stdSeries = mockChartData.map((point, index) => ({
-    key: `series_${index + 1}`,
-    label: buildShortMockSeriesLabel(point.exam_name, point.exam_date),
-    color: getSeriesColor(index),
-    values: {
-      korean: point.korean_std,
-      math: point.math_std,
-      inquiry1: point.inquiry1_std,
-      inquiry2: point.inquiry2_std,
-    },
-  }));
-
-  const stdChartData = [
-    { category: "국어", metricKey: "korean" },
-    { category: "수학", metricKey: "math" },
-    { category: "탐구1", metricKey: "inquiry1" },
-    { category: "탐구2", metricKey: "inquiry2" },
-  ].map((item) => ({
-    category: item.category,
-    ...Object.fromEntries(stdSeries.map((series) => [series.key, series.values[item.metricKey as keyof typeof series.values]])),
-  }));
-
-  const pctSeries = mockChartData.map((point, index) => ({
-    key: `series_${index + 1}`,
-    label: buildShortMockSeriesLabel(point.exam_name, point.exam_date),
-    color: getSeriesColor(index),
-    values: {
-      korean: point.korean_pct,
-      math: point.math_pct,
-      inquiry1: point.inquiry1_pct,
-      inquiry2: point.inquiry2_pct,
-    },
-  }));
-
-  const pctChartData = [
-    { category: "국어", metricKey: "korean" },
-    { category: "수학", metricKey: "math" },
-    { category: "탐구1", metricKey: "inquiry1" },
-    { category: "탐구2", metricKey: "inquiry2" },
-  ].map((item) => ({
-    category: item.category,
-    ...Object.fromEntries(pctSeries.map((series) => [series.key, series.values[item.metricKey as keyof typeof series.values]])),
-  }));
-
   const mockExamTableRows = buildMockExamTableRows(mockScores, mockExams);
+  const mockChartTitles = buildMockChartTitles(student, mockScores);
 
-  const physicalSeries = physicalChartData.map((point, index) => ({
-    key: `series_${index + 1}`,
-    label: buildShortPhysicalSeriesLabel(point.test_date),
-    color: getSeriesColor(index),
-    values: {
-      back_strength: point.back_strength,
-      run_10m: point.run_10m,
-      medicine_ball: point.medicine_ball,
-      sit_reach: point.sit_reach,
-      standing_jump: point.standing_jump,
-      run_20m: point.run_20m,
-    },
-    records: {
-      back_strength: point.back_strength_record,
-      run_10m: point.run_10m_record,
-      medicine_ball: point.medicine_ball_record,
-      sit_reach: point.sit_reach_record,
-      standing_jump: point.standing_jump_record,
-      run_20m: point.run_20m_record,
-    },
-  }));
+  const mockSubjectCharts = {
+    korean_std: buildMockSubjectSeries(mockChartData, "korean_std"),
+    math_std: buildMockSubjectSeries(mockChartData, "math_std"),
+    inquiry1_std: buildMockSubjectSeries(mockChartData, "inquiry1_std"),
+    inquiry2_std: buildMockSubjectSeries(mockChartData, "inquiry2_std"),
+    korean_pct: buildMockSubjectSeries(mockChartData, "korean_pct"),
+    math_pct: buildMockSubjectSeries(mockChartData, "math_pct"),
+    inquiry1_pct: buildMockSubjectSeries(mockChartData, "inquiry1_pct"),
+    inquiry2_pct: buildMockSubjectSeries(mockChartData, "inquiry2_pct"),
+  };
 
-  const physicalMetricItems = [
-    { category: "배근력", metricKey: "back_strength" },
-    { category: "메디신볼", metricKey: "medicine_ball" },
-    { category: "제자리멀리뛰기", metricKey: "standing_jump" },
-    { category: "10m왕복", metricKey: "run_10m" },
-    { category: "좌전굴", metricKey: "sit_reach" },
-    { category: "20m왕복달리기", metricKey: "run_20m" },
-  ] as const;
+  const physicalMetricCharts = {
+    back_strength: buildPhysicalMetricSeries(physicalChartData, "back_strength_record"),
+    medicine_ball: buildPhysicalMetricSeries(physicalChartData, "medicine_ball_record"),
+    standing_jump: buildPhysicalMetricSeries(physicalChartData, "standing_jump_record"),
+    run_10m: buildPhysicalMetricSeries(physicalChartData, "run_10m_record"),
+    sit_reach: buildPhysicalMetricSeries(physicalChartData, "sit_reach_record"),
+    run_20m: buildPhysicalMetricSeries(physicalChartData, "run_20m_record"),
+  };
 
-  const physicalGroupedChartData = physicalMetricItems.map((item) => ({
-    category: item.category,
-    metricKey: item.metricKey,
-    ...Object.fromEntries(physicalSeries.map((series) => [series.key, series.values[item.metricKey as keyof typeof series.values]])),
-    ...Object.fromEntries(
-      physicalSeries.map((series) => [`${series.key}__record`, series.records[item.metricKey as keyof typeof series.records]])
-    ),
-  }));
-
-  const physicalChartGroup1 = physicalGroupedChartData.filter((item) =>
-    ["back_strength", "medicine_ball", "standing_jump"].includes(String(item.metricKey))
-  );
-  const physicalChartGroup2 = physicalGroupedChartData.filter((item) =>
-    ["run_10m", "sit_reach", "run_20m"].includes(String(item.metricKey))
-  );
   const physicalRecordRows = [...physicalChartData].reverse();
 
   const styles: { [key: string]: React.CSSProperties } = {
@@ -748,6 +679,18 @@ export function StudentDetailPanel({
       fontWeight: 700,
       cursor: "pointer",
     },
+    subjectChartGrid: {
+      display: "grid",
+      gridTemplateColumns: isMobileViewport ? "1fr" : "repeat(2, 1fr)",
+      gap: "16px",
+    },
+    subjectChartSectionDivider: {
+      gridColumn: "1 / -1" as React.CSSProperties["gridColumn"],
+      display: "flex",
+      alignItems: "center",
+      gap: "10px",
+      padding: "2px 0",
+    },
   };
 
   if (!student) {
@@ -836,46 +779,24 @@ export function StudentDetailPanel({
             styles={styles}
           />
         </div>
-        {stdSeries.length === 0 && pctSeries.length === 0 ? (
+        {mockChartData.length === 0 ? (
           <EmptyState title="모의고사 데이터가 없습니다" description="저장된 모의고사 기록이 없습니다." />
         ) : (
-          <div style={styles.chartGrid}>
-            <div style={styles.chartPanel}>
-              <h4 style={styles.chartPanelTitle}>표준점수</h4>
-              <p style={styles.chartPanelHint}>과목별로 각 시험 회차의 표준점수를 비교합니다.</p>
-              {stdSeries.length === 0 ? (
-                <EmptyState title="표준점수 데이터가 없습니다" description="표시할 표준점수 기록이 없습니다." />
-              ) : (
-                <div style={styles.chartWrap}>
-                  <SeriesComparisonChart
-                    chartType={mockChartType}
-                    data={stdChartData}
-                    series={stdSeries}
-                    tooltip={<GroupedSeriesTooltip titleLabel="과목" />}
-                    disableAnimation={isPrintMode}
-                  />
-                </div>
-              )}
+          <div style={styles.subjectChartGrid}>
+            <div style={styles.subjectChartSectionDivider}>
+              <span style={{ fontSize: "12px", fontWeight: 800, color: "#1d4ed8", padding: "4px 12px", borderRadius: "999px", background: "rgba(37,99,235,0.08)", border: "1px solid rgba(37,99,235,0.15)" }}>표준점수</span>
             </div>
-
-            <div style={styles.chartPanel}>
-              <h4 style={styles.chartPanelTitle}>백분위</h4>
-              <p style={styles.chartPanelHint}>과목별로 각 시험 회차의 백분위를 빠르게 비교합니다.</p>
-              {pctSeries.length === 0 ? (
-                <EmptyState title="백분위 데이터가 없습니다" description="표시할 백분위 기록이 없습니다." />
-              ) : (
-                <div style={styles.chartWrap}>
-                  <SeriesComparisonChart
-                    chartType={mockChartType}
-                    data={pctChartData}
-                    series={pctSeries}
-                    tooltip={<GroupedSeriesTooltip titleLabel="과목" />}
-                    yAxisDomain={[0, 100]}
-                    disableAnimation={isPrintMode}
-                  />
-                </div>
-              )}
+            <MetricChartCard title={mockChartTitles.korean} data={mockSubjectCharts.korean_std} chartType={mockChartType} colorTone="blue" disableAnimation={isPrintMode} />
+            <MetricChartCard title={mockChartTitles.math} data={mockSubjectCharts.math_std} chartType={mockChartType} colorTone="blue" disableAnimation={isPrintMode} />
+            <MetricChartCard title={mockChartTitles.inquiry1} data={mockSubjectCharts.inquiry1_std} chartType={mockChartType} colorTone="blue" disableAnimation={isPrintMode} />
+            <MetricChartCard title={mockChartTitles.inquiry2} data={mockSubjectCharts.inquiry2_std} chartType={mockChartType} colorTone="blue" disableAnimation={isPrintMode} />
+            <div style={styles.subjectChartSectionDivider}>
+              <span style={{ fontSize: "12px", fontWeight: 800, color: "#15803d", padding: "4px 12px", borderRadius: "999px", background: "rgba(22,163,74,0.08)", border: "1px solid rgba(22,163,74,0.15)" }}>백분위</span>
             </div>
+            <MetricChartCard title={mockChartTitles.korean} data={mockSubjectCharts.korean_pct} chartType={mockChartType} colorTone="green" yAxisDomain={[0, 100]} disableAnimation={isPrintMode} />
+            <MetricChartCard title={mockChartTitles.math} data={mockSubjectCharts.math_pct} chartType={mockChartType} colorTone="green" yAxisDomain={[0, 100]} disableAnimation={isPrintMode} />
+            <MetricChartCard title={mockChartTitles.inquiry1} data={mockSubjectCharts.inquiry1_pct} chartType={mockChartType} colorTone="green" yAxisDomain={[0, 100]} disableAnimation={isPrintMode} />
+            <MetricChartCard title={mockChartTitles.inquiry2} data={mockSubjectCharts.inquiry2_pct} chartType={mockChartType} colorTone="green" yAxisDomain={[0, 100]} disableAnimation={isPrintMode} />
           </div>
         )}
       </div>
@@ -909,7 +830,7 @@ export function StudentDetailPanel({
         <div style={styles.sectionHeaderRow}>
           <div style={styles.sectionHeaderCopy}>
             <h3 style={styles.sectionTitle}>실기차트</h3>
-            <p style={styles.sectionHint}>대표 종목 6개를 계열별로 나눠, 측정 회차를 색상으로 유지한 채 두 개의 차트로 정리했습니다.</p>
+            <p style={styles.sectionHint}>종목별로 측정 회차에 따른 실제 기록 추이를 개별 차트로 확인합니다.</p>
           </div>
           <ChartTypeSelector
             label="그래프 형태"
@@ -918,43 +839,16 @@ export function StudentDetailPanel({
             styles={styles}
           />
         </div>
-        {physicalSeries.length === 0 ? (
+        {physicalChartData.length === 0 ? (
           <EmptyState title="실기 데이터가 없습니다" description="저장된 실기 기록이 없습니다." />
         ) : (
-          <div style={styles.physicalChartGrid}>
-            <div style={styles.chartCard}>
-              <h4 style={styles.chartPanelTitle}>{PHYSICAL_TABLE_GROUPS[0].chartTitle}</h4>
-              <p style={styles.chartPanelHint}>{PHYSICAL_TABLE_GROUPS[0].chartHint}</p>
-              <div style={styles.chartWrap}>
-                <SeriesComparisonChart
-                  chartType={physicalChartType}
-                  data={physicalChartGroup1}
-                  series={physicalSeries}
-                  tooltip={<PhysicalTrendTooltip />}
-                  xAxisTickFormatter={formatPhysicalCategoryTick}
-                  xAxisHeight={68}
-                  chartMargin={{ top: 20, right: 20, left: 10, bottom: 46 }}
-                  disableAnimation={isPrintMode}
-                />
-              </div>
-            </div>
-
-            <div style={styles.chartCard}>
-              <h4 style={styles.chartPanelTitle}>{PHYSICAL_TABLE_GROUPS[1].chartTitle}</h4>
-              <p style={styles.chartPanelHint}>{PHYSICAL_TABLE_GROUPS[1].chartHint}</p>
-              <div style={styles.chartWrap}>
-                <SeriesComparisonChart
-                  chartType={physicalChartType}
-                  data={physicalChartGroup2}
-                  series={physicalSeries}
-                  tooltip={<PhysicalTrendTooltip />}
-                  xAxisTickFormatter={formatPhysicalCategoryTick}
-                  xAxisHeight={68}
-                  chartMargin={{ top: 20, right: 20, left: 10, bottom: 46 }}
-                  disableAnimation={isPrintMode}
-                />
-              </div>
-            </div>
+          <div style={styles.subjectChartGrid}>
+            <MetricChartCard title="배근력" unit="kg" data={physicalMetricCharts.back_strength} chartType={physicalChartType} colorTone="orange" yAxisDomain={calcYAxisDomain(physicalMetricCharts.back_strength)} disableAnimation={isPrintMode} />
+            <MetricChartCard title="메디신볼" unit="cm" data={physicalMetricCharts.medicine_ball} chartType={physicalChartType} colorTone="orange" yAxisDomain={calcYAxisDomain(physicalMetricCharts.medicine_ball)} disableAnimation={isPrintMode} />
+            <MetricChartCard title="제자리멀리뛰기" unit="cm" data={physicalMetricCharts.standing_jump} chartType={physicalChartType} colorTone="orange" yAxisDomain={calcYAxisDomain(physicalMetricCharts.standing_jump)} disableAnimation={isPrintMode} />
+            <MetricChartCard title="10m왕복달리기" unit="초" data={physicalMetricCharts.run_10m} chartType={physicalChartType} colorTone="orange" yAxisDomain={calcYAxisDomain(physicalMetricCharts.run_10m)} disableAnimation={isPrintMode} />
+            <MetricChartCard title="좌전굴" unit="cm" data={physicalMetricCharts.sit_reach} chartType={physicalChartType} colorTone="orange" yAxisDomain={calcYAxisDomain(physicalMetricCharts.sit_reach)} disableAnimation={isPrintMode} />
+            <MetricChartCard title="20m왕복달리기" unit="초" data={physicalMetricCharts.run_20m} chartType={physicalChartType} colorTone="orange" yAxisDomain={calcYAxisDomain(physicalMetricCharts.run_20m)} disableAnimation={isPrintMode} />
           </div>
         )}
       </div>
@@ -1745,11 +1639,58 @@ function buildMockExamSummaryCell(
   }
 
   return {
-    subjectName: normalizeSubjectLabel(subject, score[`${subject}_name`]),
+    subjectName: cleanSubjectDisplayName(score[`${subject}_name`]),
     raw: normalizeEmptyValue(score[`${subject}_raw`]),
     std: normalizeEmptyValue(score[`${subject}_std`]),
     pct: normalizeEmptyValue(score[`${subject}_pct`]),
     grade: normalizeEmptyValue(score[`${subject}_grade`]),
+  };
+}
+
+function cleanSubjectDisplayName(value: string | undefined) {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    return "";
+  }
+
+  const compact = raw.replace(/\s+/g, "");
+  const normalized = compact
+    .replace(/^국어/, "")
+    .replace(/^수학/, "")
+    .replace(/^탐구?1/, "")
+    .replace(/^탐구?2/, "")
+    .replace(/^탐1/, "")
+    .replace(/^탐2/, "")
+    .replace(/^사회탐구/, "")
+    .replace(/^과학탐구/, "")
+    .replace(/^\(/, "")
+    .replace(/\)$/, "");
+
+  return normalized || raw;
+}
+
+function findLatestSubjectName(
+  student: Student | null,
+  mockScores: MockScore[],
+  subject: "korean" | "math" | "inquiry1" | "inquiry2"
+) {
+  for (let index = mockScores.length - 1; index >= 0; index -= 1) {
+    const candidate = cleanSubjectDisplayName(mockScores[index][`${subject}_name`]);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return cleanSubjectDisplayName(student?.[`${subject}_name`]);
+}
+
+function buildMockChartTitles(student: Student | null, mockScores: MockScore[]) {
+  return {
+    korean: findLatestSubjectName(student, mockScores, "korean") || "국어",
+    math: findLatestSubjectName(student, mockScores, "math") || "수학",
+    inquiry1: findLatestSubjectName(student, mockScores, "inquiry1") || "탐구1",
+    inquiry2: findLatestSubjectName(student, mockScores, "inquiry2") || "탐구2",
   };
 }
 
@@ -1797,7 +1738,21 @@ function normalizeSubjectLabel(
     .replace(/^사회탐구/, "")
     .replace(/^과학탐구/, "");
 
-  return normalized || compact;
+  const resolved = normalized || compact;
+
+  if (subject === "korean") {
+    return `국어(${resolved})`;
+  }
+
+  if (subject === "math") {
+    return `수학(${resolved})`;
+  }
+
+  if (subject === "inquiry1") {
+    return `탐1(${resolved})`;
+  }
+
+  return `탐2(${resolved})`;
 }
 
 function normalizeEmptyValue(value: string | undefined) {
@@ -1867,4 +1822,256 @@ function getPhysicalTableTheme(theme: PhysicalTableTheme) {
     rankColor: "#0369a1",
     rankBorder: "rgba(14, 165, 233, 0.24)",
   };
+}
+
+// ─── Color tones for per-subject / per-metric chart cards ─────────────────────
+
+const BLUE_TONE = {
+  main: "#2563eb",
+  strong: "#1d4ed8",
+  soft: "rgba(37,99,235,0.07)",
+  border: "rgba(37,99,235,0.15)",
+} as const;
+
+const GREEN_TONE = {
+  main: "#16a34a",
+  strong: "#15803d",
+  soft: "rgba(22,163,74,0.07)",
+  border: "rgba(22,163,74,0.15)",
+} as const;
+
+const ORANGE_TONE = {
+  main: "#ea580c",
+  strong: "#c2410c",
+  soft: "rgba(234,88,12,0.07)",
+  border: "rgba(234,88,12,0.15)",
+} as const;
+
+// ─── Data builders ─────────────────────────────────────────────────────────────
+
+function buildMockSubjectSeries(
+  points: StudentMockChartPoint[],
+  subjectKey:
+    | "korean_std" | "math_std" | "inquiry1_std" | "inquiry2_std"
+    | "korean_pct" | "math_pct" | "inquiry1_pct" | "inquiry2_pct"
+) {
+  return points.map((p) => ({
+    category: buildShortMockSeriesLabel(p.exam_name, p.exam_date),
+    value: Number(p[subjectKey] ?? 0),
+    displayValue: String(p[subjectKey] ?? "-"),
+  }));
+}
+
+function buildPhysicalMetricSeries(
+  points: StudentPhysicalChartPoint[],
+  recordKey:
+    | "back_strength_record" | "run_10m_record" | "medicine_ball_record"
+    | "sit_reach_record" | "standing_jump_record" | "run_20m_record"
+) {
+  return points.map((p) => {
+    const raw = String(p[recordKey] || "").trim();
+    const num = parseFloat(raw);
+    return {
+      category: buildShortPhysicalSeriesLabel(p.test_date),
+      value: Number.isFinite(num) ? num : 0,
+      displayValue: raw || "-",
+    };
+  });
+}
+
+function calcYAxisDomain(data: Array<{ value: number }>): [number, number] | undefined {
+  const values = data.map((d) => d.value).filter((v) => v > 0 && Number.isFinite(v));
+  if (values.length < 2) return undefined;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || max * 0.1 || 1;
+  const pad = Math.max(range * 0.3, 0.5);
+  return [
+    parseFloat(Math.max(0, min - pad).toFixed(2)),
+    parseFloat((max + pad).toFixed(2)),
+  ];
+}
+
+function formatMetricAxisTick(value: number | string, unit?: string) {
+  const numericValue = typeof value === "number" ? value : Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return String(value ?? "");
+  }
+
+  if (unit === "초") {
+    return Number.isInteger(numericValue) ? `${numericValue}` : numericValue.toFixed(2);
+  }
+
+  if (unit === "kg") {
+    return Number.isInteger(numericValue) ? `${numericValue}` : numericValue.toFixed(1);
+  }
+
+  return Number.isInteger(numericValue) ? `${numericValue}` : numericValue.toFixed(1);
+}
+
+// ─── Single-metric tooltip ─────────────────────────────────────────────────────
+
+function SingleMetricTooltip({
+  active,
+  payload,
+  color,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: { category: string; value: number; displayValue?: string } }>;
+  color: string;
+}) {
+  if (!active || !payload?.length || !payload[0]?.payload) return null;
+  const { category, value, displayValue } = payload[0].payload;
+  return (
+    <div
+      style={{
+        background: "rgba(255,255,255,0.98)",
+        border: "1px solid rgba(0,0,0,0.08)",
+        borderRadius: "10px",
+        padding: "10px 14px",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+        fontSize: "13px",
+        minWidth: "90px",
+      }}
+    >
+      <div style={{ fontWeight: 800, marginBottom: "4px", color: "#0f172a" }}>{category}</div>
+      <div style={{ color, fontWeight: 700 }}>{displayValue || String(value)}</div>
+    </div>
+  );
+}
+
+// ─── Single-metric chart (bar or line) ────────────────────────────────────────
+
+function SingleMetricChart({
+  chartType,
+  data,
+  color,
+  unit,
+  yAxisDomain,
+  disableAnimation = false,
+}: {
+  chartType: ChartType;
+  data: Array<{ category: string; value: number; displayValue?: string }>;
+  color: string;
+  unit?: string;
+  yAxisDomain?: [number, number];
+  disableAnimation?: boolean;
+}) {
+  const tooltipEl = <SingleMetricTooltip color={color} />;
+  const axisStyle = { fontSize: 11, fill: "#64748b" };
+  const tickFormatter = (value: number | string) => formatMetricAxisTick(value, unit);
+
+  if (chartType === "line") {
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 12, right: 14, left: -8, bottom: 8 }}>
+          <CartesianGrid stroke="rgba(0,0,0,0.05)" strokeDasharray="4 4" />
+          <XAxis dataKey="category" tick={axisStyle} axisLine={false} tickLine={false} />
+          <YAxis domain={yAxisDomain} tick={axisStyle} tickFormatter={tickFormatter} axisLine={false} tickLine={false} width={44} />
+          <Tooltip content={tooltipEl} cursor={{ stroke: `${color}33`, strokeWidth: 1 }} />
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke={color}
+            strokeWidth={2.5}
+            dot={{ r: 4, fill: color, strokeWidth: 0 }}
+            activeDot={{ r: 6, fill: color, strokeWidth: 0 }}
+            isAnimationActive={!disableAnimation}
+            connectNulls
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={data} margin={{ top: 12, right: 14, left: -8, bottom: 8 }} barCategoryGap="38%">
+        <CartesianGrid stroke="rgba(0,0,0,0.05)" strokeDasharray="4 4" vertical={false} />
+        <XAxis dataKey="category" tick={axisStyle} axisLine={false} tickLine={false} />
+        <YAxis domain={yAxisDomain} tick={axisStyle} tickFormatter={tickFormatter} axisLine={false} tickLine={false} width={44} />
+        <Tooltip content={tooltipEl} cursor={{ fill: `${color}0d` }} />
+        <Bar dataKey="value" fill={color} radius={[5, 5, 0, 0]} isAnimationActive={!disableAnimation} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── Metric chart card ─────────────────────────────────────────────────────────
+
+function MetricChartCard({
+  title,
+  unit,
+  data,
+  chartType,
+  colorTone,
+  yAxisDomain,
+  disableAnimation = false,
+}: {
+  title: string;
+  unit?: string;
+  data: Array<{ category: string; value: number; displayValue?: string }>;
+  chartType: ChartType;
+  colorTone: "blue" | "green" | "orange";
+  yAxisDomain?: [number, number];
+  disableAnimation?: boolean;
+}) {
+  const tone = colorTone === "blue" ? BLUE_TONE : colorTone === "green" ? GREEN_TONE : ORANGE_TONE;
+  const hasData = data.some((d) => d.value > 0);
+
+  return (
+    <div
+      style={{
+        background: `linear-gradient(180deg, ${tone.soft} 0%, rgba(255,255,255,0.98) 60%)`,
+        border: `1px solid ${tone.border}`,
+        borderLeft: `4px solid ${tone.main}`,
+        borderRadius: "16px",
+        padding: "18px 18px 14px 18px",
+        boxShadow: "0 2px 10px rgba(0,0,0,0.05)",
+      }}
+    >
+      <div style={{ marginBottom: "10px", display: "flex", alignItems: "baseline", gap: "5px" }}>
+        <h5
+          style={{
+            margin: 0,
+            fontSize: "15px",
+            fontWeight: 900,
+            color: tone.strong,
+            letterSpacing: "-0.02em",
+          }}
+        >
+          {title}
+        </h5>
+        {unit && (
+          <span style={{ fontSize: "11px", fontWeight: 600, color: tone.main, opacity: 0.75 }}>
+            {unit}
+          </span>
+        )}
+      </div>
+      {hasData ? (
+        <div style={{ width: "100%", height: "190px" }}>
+          <SingleMetricChart
+            chartType={chartType}
+            data={data}
+            color={tone.main}
+            unit={unit}
+            yAxisDomain={yAxisDomain}
+            disableAnimation={disableAnimation}
+          />
+        </div>
+      ) : (
+        <div
+          style={{
+            height: "80px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <span style={{ fontSize: "12px", color: "#94a3b8" }}>데이터 없음</span>
+        </div>
+      )}
+    </div>
+  );
 }

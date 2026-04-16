@@ -36,6 +36,20 @@ async function parseResponse(response: Response) {
   }
 }
 
+async function postToAppsScript(payload: Record<string, unknown>) {
+  const response = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8",
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    redirect: "follow",
+  });
+
+  return response;
+}
+
 export async function GET() {
   try {
     const accounts = await getAccountsSheet();
@@ -70,14 +84,7 @@ export async function POST(request: Request) {
       row: normalizeRow(sourceRow),
     };
 
-    const response = await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    });
+    const response = await postToAppsScript(payload);
 
     const result = await parseResponse(response);
 
