@@ -90,9 +90,7 @@ export function PrintStudentDetail({
             padding: 0 !important;
           }
 
-          .print-header,
-          .print-panel,
-          .print-note {
+          .print-header {
             break-inside: avoid;
             page-break-inside: avoid;
           }
@@ -156,16 +154,15 @@ export function PrintStudentDetail({
 const styles: Record<string, React.CSSProperties> = {
   page: {
     background: "#ffffff",
-    padding: "20px 22px 28px",
+    padding: "8px 10px 12px",
   },
   header: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) 260px",
-    gap: "18px",
-    alignItems: "stretch",
-    marginBottom: "20px",
+    display: "flex",
+    justifyContent: "flex-end",
+    marginBottom: "10px",
   },
   headerCopy: {
+    display: "none",
     border: `1px solid ${portalTheme.colors.line}`,
     borderRadius: "24px",
     padding: "20px 22px",
@@ -194,36 +191,40 @@ const styles: Record<string, React.CSSProperties> = {
   },
   metaCard: {
     border: `1px solid ${portalTheme.colors.line}`,
-    borderRadius: "24px",
-    padding: "18px 18px 16px",
+    borderRadius: "16px",
+    padding: "10px 12px",
     background: "linear-gradient(180deg, #f9fbfd 0%, #ffffff 100%)",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    gap: "10px",
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, auto))",
+    alignItems: "center",
+    gap: "12px",
+    width: "fit-content",
+    maxWidth: "100%",
   },
   metaRow: {
     display: "flex",
     flexDirection: "column",
-    gap: "4px",
+    gap: "3px",
+    minWidth: 0,
   },
   metaLabel: {
-    fontSize: "11px",
+    fontSize: "10px",
     fontWeight: 800,
     letterSpacing: "0.08em",
     color: portalTheme.colors.textMuted,
   },
   metaValue: {
-    fontSize: "14px",
+    fontSize: "13px",
     color: portalTheme.colors.textStrong,
   },
   panel: {
-    border: `1px solid ${portalTheme.colors.line}`,
-    borderRadius: "28px",
-    padding: "22px 24px 24px",
+    border: "none",
+    borderRadius: 0,
+    padding: 0,
     background: "#ffffff",
   },
   note: {
+    display: "none",
     marginTop: "12px",
     fontSize: "11px",
     lineHeight: 1.6,

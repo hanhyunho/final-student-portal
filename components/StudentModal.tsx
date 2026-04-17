@@ -165,15 +165,6 @@ function pickExamFields(source: Partial<Student>) {
 
 const EXAM_DRAFT_KEY_PREFIX = "draft_exam";
 const EXAM_DRAFT_DEBOUNCE_MS = 800;
-const emptyPhysicalForm = {
-  back_strength_value: "",
-  run_10m_value: "",
-  medicine_ball_value: "",
-  sit_reach_value: "",
-  standing_jump_value: "",
-  run_20m_value: "",
-};
-
 const fallbackMockExams: MockExam[] = EXAM_SAVE_GROUPS.map((group) => ({
   exam_id: getCanonicalExamId(group),
   exam_name: EXAM_LABELS[group],
@@ -220,7 +211,14 @@ export function StudentModal({
   const [hasUnsavedExamChanges, setHasUnsavedExamChanges] = useState(false);
   const [savingExam, setSavingExam] = useState(false);
   const [selectedPhysicalTestId, setSelectedPhysicalTestId] = useState<string>("");
-  const [physicalForm, setPhysicalForm] = useState(emptyPhysicalForm);
+  const [physicalForm, setPhysicalForm] = useState({
+    back_strength_value: "",
+    run_10m_value: "",
+    medicine_ball_value: "",
+    sit_reach_value: "",
+    standing_jump_value: "",
+    run_20m_value: "",
+  });
   const [hasUnsavedPhysicalChanges, setHasUnsavedPhysicalChanges] = useState(false);
   const [savingPhysical, setSavingPhysical] = useState(false);
   const [saveNotice, setSaveNotice] = useState<SaveNotice | null>(null);
@@ -344,20 +342,36 @@ export function StudentModal({
     return !!currentStudentName && !!recordStudentName && currentStudentName === recordStudentName && currentCampusCandidates.includes(recordCampus);
   }, [form.name, getCurrentCampusCandidates, getCurrentStudentId, student]);
 
+  const matchedPhysicalRecords = useMemo(() => {
+    return physicalRecords.filter((record) => matchesPhysicalRecordToCurrentStudent(record));
+  }, [matchesPhysicalRecordToCurrentStudent, physicalRecords]);
+
+  const sortedMatchedPhysicalRecords = useMemo(() => {
+    const testsById = new Map(physicalTests.map((test) => [s(test.test_id), test]));
+
+    return [...matchedPhysicalRecords].sort((left, right) => {
+      const leftDate = getSortableDateValue(
+        s(testsById.get(s(left.test_id))?.test_date || getRecordField(left, "test_date") || getRecordField(left, "exam_date"))
+      );
+      const rightDate = getSortableDateValue(
+        s(testsById.get(s(right.test_id))?.test_date || getRecordField(right, "test_date") || getRecordField(right, "exam_date"))
+      );
+
+      if (rightDate !== leftDate) {
+        return rightDate - leftDate;
+      }
+
+      return s(right.updated_at).localeCompare(s(left.updated_at));
+    });
+  }, [matchedPhysicalRecords, physicalTests]);
+
   const getPhysicalRecordForTest = useCallback((testId: string) => {
-    const studentId = getCurrentStudentId();
-    if (!studentId || !testId) {
+    if (!testId) {
       return null;
     }
 
-    return (
-      physicalRecords.find(
-        (record) =>
-          s(record.student_id) === studentId &&
-          s(record.test_id) === s(testId)
-      ) || null
-    );
-  }, [getCurrentStudentId, physicalRecords]);
+    return sortedMatchedPhysicalRecords.find((record) => s(record.test_id) === s(testId)) || null;
+  }, [sortedMatchedPhysicalRecords]);
 
   const loadPhysicalRecord = useCallback((testId: string) => {
     const record = getPhysicalRecordForTest(testId);
@@ -377,19 +391,33 @@ export function StudentModal({
     return getPhysicalRecordForTest(selectedPhysicalTestId);
   }, [getPhysicalRecordForTest, selectedPhysicalTestId]);
 
-  const practicalHistoryItems = useMemo(() => {
-    const studentId = getCurrentStudentId();
-    if (!studentId) {
-      return [];
+  useEffect(() => {
+    if (!isOpen) {
+      return;
     }
 
+    const fallbackPhysicalTestId = s(sortedMatchedPhysicalRecords[0]?.test_id || physicalTests[0]?.test_id);
+
+    if (!fallbackPhysicalTestId) {
+      if (selectedPhysicalTestId) {
+        setSelectedPhysicalTestId("");
+      }
+      return;
+    }
+
+    if (!selectedPhysicalTestId || !currentPhysicalRecord) {
+      setSelectedPhysicalTestId(fallbackPhysicalTestId);
+      loadPhysicalRecord(fallbackPhysicalTestId);
+    }
+  }, [currentPhysicalRecord, isOpen, loadPhysicalRecord, physicalTests, selectedPhysicalTestId, sortedMatchedPhysicalRecords]);
+
+  const practicalHistoryItems = useMemo(() => {
     const testsById = new Map(physicalTests.map((test) => [s(test.test_id), test]));
 
-    return physicalRecords
-      .filter((record) => s(record.student_id) === studentId)
+    return sortedMatchedPhysicalRecords
       .map((record) => {
         const test = testsById.get(s(record.test_id));
-        const testDate = s(test?.test_date).trim();
+        const testDate = s(test?.test_date || getRecordField(record, "test_date") || getRecordField(record, "exam_date")).trim();
         const parsedDate = testDate.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
         const sortableDate = parsedDate
           ? Number(`${parsedDate[1]}${parsedDate[2].padStart(2, "0")}${parsedDate[3].padStart(2, "0")}`)
@@ -409,13 +437,12 @@ export function StudentModal({
 
         return s(right.record.updated_at).localeCompare(s(left.record.updated_at));
       });
-  }, [getCurrentStudentId, physicalRecords, physicalTests]);
+  }, [physicalTests, sortedMatchedPhysicalRecords]);
 
   const practicalScoreChartData = useMemo(() => {
     const testsById = new Map(physicalTests.map((test) => [s(test.test_id), test]));
 
-    return physicalRecords
-      .filter((record) => matchesPhysicalRecordToCurrentStudent(record))
+    return sortedMatchedPhysicalRecords
       .map((record) => {
         const test = testsById.get(s(record.test_id));
         const testDate = s(test?.test_date || getRecordField(record, "test_date") || getRecordField(record, "exam_date")).trim();
@@ -432,19 +459,11 @@ export function StudentModal({
         };
       })
       .sort((left, right) => left.sortDate - right.sortDate);
-  }, [matchesPhysicalRecordToCurrentStudent, physicalRecords, physicalTests]);
+  }, [physicalTests, sortedMatchedPhysicalRecords]);
 
   const getPhysicalRecordDisplayValue = useCallback((value: unknown) => {
     const normalized = s(value).trim();
     return normalized || "-";
-  }, []);
-
-  const handlePhysicalFieldChange = useCallback((field: keyof typeof emptyPhysicalForm, value: string) => {
-    setPhysicalForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-    setHasUnsavedPhysicalChanges(true);
   }, []);
 
   const handlePhysicalTestChange = useCallback((newTestId: string) => {
@@ -463,7 +482,7 @@ export function StudentModal({
 
     setSelectedPhysicalTestId(newTestId);
     loadPhysicalRecord(newTestId);
-  }, [hasUnsavedPhysicalChanges, loadPhysicalRecord, selectedPhysicalTestId]);
+  }, [loadPhysicalRecord, selectedPhysicalTestId]);
 
   const handlePhysicalSave = async () => {
     if (!selectedPhysicalTestId) {
@@ -829,7 +848,14 @@ export function StudentModal({
       setCurrentExamId("");
       setHasUnsavedExamChanges(false);
       setSelectedPhysicalTestId(s(physicalTests[0]?.test_id));
-      setPhysicalForm(emptyPhysicalForm);
+      setPhysicalForm({
+        back_strength_value: "",
+        run_10m_value: "",
+        medicine_ball_value: "",
+        sit_reach_value: "",
+        standing_jump_value: "",
+        run_20m_value: "",
+      });
       setHasUnsavedPhysicalChanges(false);
       examScrollPositionsRef.current = {};
     } else if (student) {
@@ -993,15 +1019,13 @@ export function StudentModal({
         }
       }
 
-      const initialPhysicalRecord = physicalRecords.find(
-        (record) => s(record.student_id) === s(student.student_id)
-      );
+      const initialPhysicalRecord = sortedMatchedPhysicalRecords[0] || null;
       const fallbackPhysicalTestId = s(initialPhysicalRecord?.test_id || physicalTests[0]?.test_id);
       const nextPhysicalTestId = s(selectedPhysicalTestId || fallbackPhysicalTestId);
       setSelectedPhysicalTestId(nextPhysicalTestId);
       loadPhysicalRecord(nextPhysicalTestId);
     }
-  }, [branches, getResolvedExamId, initialExamId, initialLoginStatus, isOpen, loadPhysicalRecord, mode, physicalRecords, physicalTests, selectedPhysicalTestId, student]);
+  }, [branches, getResolvedExamId, initialExamId, initialLoginStatus, isOpen, loadPhysicalRecord, mode, physicalTests, selectedPhysicalTestId, sortedMatchedPhysicalRecords, student]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1864,75 +1888,62 @@ export function StudentModal({
                 )}
               </select>
             </div>
+            <div style={styles.formFieldWide}>
+              <div style={styles.physicalReadOnlyHint}>
+                선택한 테스트의 기록과 점수를 시트 데이터 기준으로 바로 보여줍니다.
+              </div>
+            </div>
             <div className={classes.practicalItemsGrid}>
               <div style={styles.formField} className={classes.practicalItemCard}>
                 <label style={styles.formLabel} className={classes.practicalItemLabel}>배근력</label>
-                <input
-                  style={styles.formInput}
-                  value={physicalForm.back_strength_value}
-                  onChange={(e) => handlePhysicalFieldChange("back_strength_value", e.target.value)}
-                  placeholder="배근력 측정값"
-                />
+                <div style={styles.physicalReadOnlyValue}>
+                  {getPhysicalRecordDisplayValue(physicalForm.back_strength_value)}
+                </div>
                 <div className={classes.practicalScoreText}>
                   배근력 점수: <span className={getPhysicalRecordDisplayValue(currentPhysicalRecord?.back_strength_score) === "-" ? classes.practicalScoreValueEmpty : classes.practicalScoreValueFilled}>{getPhysicalRecordDisplayValue(currentPhysicalRecord?.back_strength_score)}</span>
                 </div>
               </div>
               <div style={styles.formField} className={classes.practicalItemCard}>
                 <label style={styles.formLabel} className={classes.practicalItemLabel}>10m 달리기</label>
-                <input
-                  style={styles.formInput}
-                  value={physicalForm.run_10m_value}
-                  onChange={(e) => handlePhysicalFieldChange("run_10m_value", e.target.value)}
-                  placeholder="10m 달리기 기록"
-                />
+                <div style={styles.physicalReadOnlyValue}>
+                  {getPhysicalRecordDisplayValue(physicalForm.run_10m_value)}
+                </div>
                 <div className={classes.practicalScoreText}>
                   10m 달리기 점수: <span className={getPhysicalRecordDisplayValue(currentPhysicalRecord?.run_10m_score) === "-" ? classes.practicalScoreValueEmpty : classes.practicalScoreValueFilled}>{getPhysicalRecordDisplayValue(currentPhysicalRecord?.run_10m_score)}</span>
                 </div>
               </div>
               <div style={styles.formField} className={classes.practicalItemCard}>
                 <label style={styles.formLabel} className={classes.practicalItemLabel}>메디신볼</label>
-                <input
-                  style={styles.formInput}
-                  value={physicalForm.medicine_ball_value}
-                  onChange={(e) => handlePhysicalFieldChange("medicine_ball_value", e.target.value)}
-                  placeholder="메디신볼 거리"
-                />
+                <div style={styles.physicalReadOnlyValue}>
+                  {getPhysicalRecordDisplayValue(physicalForm.medicine_ball_value)}
+                </div>
                 <div className={classes.practicalScoreText}>
                   메디신볼 점수: <span className={getPhysicalRecordDisplayValue(currentPhysicalRecord?.medicine_ball_score) === "-" ? classes.practicalScoreValueEmpty : classes.practicalScoreValueFilled}>{getPhysicalRecordDisplayValue(currentPhysicalRecord?.medicine_ball_score)}</span>
                 </div>
               </div>
               <div style={styles.formField} className={classes.practicalItemCard}>
                 <label style={styles.formLabel} className={classes.practicalItemLabel}>좌전굴</label>
-                <input
-                  style={styles.formInput}
-                  value={physicalForm.sit_reach_value}
-                  onChange={(e) => handlePhysicalFieldChange("sit_reach_value", e.target.value)}
-                  placeholder="좌전굴 거리"
-                />
+                <div style={styles.physicalReadOnlyValue}>
+                  {getPhysicalRecordDisplayValue(physicalForm.sit_reach_value)}
+                </div>
                 <div className={classes.practicalScoreText}>
                   좌전굴 점수: <span className={getPhysicalRecordDisplayValue(currentPhysicalRecord?.sit_reach_score) === "-" ? classes.practicalScoreValueEmpty : classes.practicalScoreValueFilled}>{getPhysicalRecordDisplayValue(currentPhysicalRecord?.sit_reach_score)}</span>
                 </div>
               </div>
               <div style={styles.formField} className={classes.practicalItemCard}>
                 <label style={styles.formLabel} className={classes.practicalItemLabel}>제자리멀리뛰기</label>
-                <input
-                  style={styles.formInput}
-                  value={physicalForm.standing_jump_value}
-                  onChange={(e) => handlePhysicalFieldChange("standing_jump_value", e.target.value)}
-                  placeholder="제자리멀리뛰기 거리"
-                />
+                <div style={styles.physicalReadOnlyValue}>
+                  {getPhysicalRecordDisplayValue(physicalForm.standing_jump_value)}
+                </div>
                 <div className={classes.practicalScoreText}>
                   제자리멀리뛰기 점수: <span className={getPhysicalRecordDisplayValue(currentPhysicalRecord?.standing_jump_score) === "-" ? classes.practicalScoreValueEmpty : classes.practicalScoreValueFilled}>{getPhysicalRecordDisplayValue(currentPhysicalRecord?.standing_jump_score)}</span>
                 </div>
               </div>
               <div style={styles.formField} className={classes.practicalItemCard}>
                 <label style={styles.formLabel} className={classes.practicalItemLabel}>20m 달리기</label>
-                <input
-                  style={styles.formInput}
-                  value={physicalForm.run_20m_value}
-                  onChange={(e) => handlePhysicalFieldChange("run_20m_value", e.target.value)}
-                  placeholder="20m 달리기 기록"
-                />
+                <div style={styles.physicalReadOnlyValue}>
+                  {getPhysicalRecordDisplayValue(physicalForm.run_20m_value)}
+                </div>
                 <div className={classes.practicalScoreText}>
                   20m 달리기 점수: <span className={getPhysicalRecordDisplayValue(currentPhysicalRecord?.run_20m_score) === "-" ? classes.practicalScoreValueEmpty : classes.practicalScoreValueFilled}>{getPhysicalRecordDisplayValue(currentPhysicalRecord?.run_20m_score)}</span>
                 </div>
@@ -2046,17 +2057,6 @@ export function StudentModal({
                   })}
                 </div>
               )}
-            </div>
-            <div style={styles.formFieldWide} className={classes.practicalSaveWrap}>
-              <button
-                style={styles.examSaveButton}
-                className={classes.practicalSaveButton}
-                type="button"
-                onClick={handlePhysicalSave}
-                disabled={savingPhysical || !selectedPhysicalTestId || !hasUnsavedPhysicalChanges}
-              >
-                {savingPhysical ? "실기 저장 중..." : hasUnsavedPhysicalChanges ? "실기 기록 저장" : "실기 기록 저장됨"}
-              </button>
             </div>
           </div>
         )}
@@ -2370,6 +2370,27 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "14px",
     outline: "none",
     background: "#fff",
+  },
+  physicalReadOnlyHint: {
+    padding: "11px 14px",
+    borderRadius: "12px",
+    border: "1px solid #dbe7f3",
+    background: "#f8fbff",
+    color: "#475569",
+    fontSize: "13px",
+    lineHeight: 1.5,
+  },
+  physicalReadOnlyValue: {
+    padding: "12px 14px",
+    borderRadius: "12px",
+    border: "1px solid #dbe7f3",
+    background: "#f8fafc",
+    color: "#0f172a",
+    fontSize: "14px",
+    fontWeight: 700,
+    minHeight: "46px",
+    display: "flex",
+    alignItems: "center",
   },
   sectionToggle: {
     width: "100%",

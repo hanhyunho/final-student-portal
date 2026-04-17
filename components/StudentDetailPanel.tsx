@@ -26,6 +26,7 @@ interface StudentDetailPanelProps {
   canManage?: boolean;
   sticky?: boolean;
   showActions?: boolean;
+  headerActions?: React.ReactNode;
   renderMode?: "screen" | "print";
   badgeLabel?: string;
   onEdit: () => void;
@@ -149,6 +150,7 @@ function StudentDetailPanelComponent({
   canManage = true,
   sticky = true,
   showActions = true,
+  headerActions,
   renderMode = "screen",
   badgeLabel = "선택된 학생",
   onEdit,
@@ -218,65 +220,86 @@ function StudentDetailPanelComponent({
   const styles: { [key: string]: React.CSSProperties } = useMemo(() => ({
     detailCard: {
       background: isPrintMode ? "#ffffff" : portalTheme.gradients.card,
-      padding: isPrintMode ? "0" : "clamp(16px, 3vw, 24px)",
+      padding: isPrintMode ? "0" : "clamp(14px, 2.4vw, 20px)",
       borderRadius: portalTheme.radius.md,
       boxShadow: isPrintMode ? "none" : portalTheme.shadows.panel,
       border: isPrintMode ? "none" : `1px solid ${portalTheme.colors.line}`,
       position: !isPrintMode && sticky ? "sticky" : "relative",
       top: !isPrintMode && sticky ? "20px" : undefined,
-      breakInside: "avoid",
-      pageBreakInside: "avoid",
-    },
-    selectedBadge: {
-      display: "inline-block",
-      padding: "7px 12px",
-      borderRadius: portalTheme.radius.pill,
-      background: portalTheme.colors.primarySoft,
-      color: portalTheme.colors.primaryStrong,
-      fontSize: "12px",
-      fontWeight: 700,
-      marginBottom: "14px",
-      border: `1px solid ${portalTheme.colors.primaryTint}`,
-      breakInside: "avoid",
-      pageBreakInside: "avoid",
+      breakInside: isPrintMode ? "auto" : "avoid",
+      pageBreakInside: isPrintMode ? "auto" : "avoid",
     },
     detailName: {
-      margin: "0 0 8px 0",
-      fontSize: "34px",
+      margin: 0,
+      fontSize: "32px",
       fontWeight: 900,
       color: portalTheme.colors.textStrong,
       letterSpacing: "-0.5px",
     },
-    detailSub: {
-      margin: "0 0 16px 0",
-      color: portalTheme.colors.textMuted,
-      fontSize: "14px",
+    detailTopShell: {
+      display: "grid",
+      gridTemplateColumns: "1fr",
+      gap: "14px 18px",
+      alignItems: "start",
+    },
+    detailTopMain: {
+      minWidth: 0,
+    },
+    detailHeaderRow: {
+      display: "flex",
+      alignItems: "flex-start",
+      gap: "10px",
+      marginBottom: "10px",
+    },
+    detailMetaRow: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: "8px 10px",
+      marginBottom: "10px",
+      alignItems: "center",
+    },
+    detailMetaChip: {
+      display: "inline-flex",
+      alignItems: "center",
+      minHeight: "32px",
+      padding: "6px 10px",
+      borderRadius: portalTheme.radius.pill,
+      background: portalTheme.colors.surfacePanel,
+      border: `1px solid ${portalTheme.colors.line}`,
+      color: portalTheme.colors.textPrimary,
+      fontSize: "13px",
+      fontWeight: 700,
+      lineHeight: 1.3,
     },
     infoSection: {
-      borderTop: `1px solid ${portalTheme.colors.line}`,
       borderBottom: `1px solid ${portalTheme.colors.line}`,
-      padding: "16px 0",
-      marginBottom: "20px",
-      breakInside: "avoid",
-      pageBreakInside: "avoid",
+      padding: "0 0 14px 0",
+      marginBottom: "18px",
+      breakInside: isPrintMode ? "auto" : "avoid",
+      pageBreakInside: isPrintMode ? "auto" : "avoid",
     },
-    infoRow: {
+    memoRow: {
       display: "flex",
-      justifyContent: "space-between",
-      gap: "12px",
-      fontSize: "14px",
-      marginBottom: "10px",
-      color: portalTheme.colors.textPrimary,
+      gap: "10px",
       alignItems: "flex-start",
+      padding: "10px 12px",
+      borderRadius: portalTheme.radius.md,
+      background: portalTheme.colors.surfacePanel,
+      border: `1px solid ${portalTheme.colors.line}`,
     },
-    infoTitle: {
-      fontWeight: 700,
+    memoLabel: {
+      flex: "0 0 auto",
+      fontSize: "13px",
+      fontWeight: 800,
       color: portalTheme.colors.textMuted,
-      flex: "0 0 88px",
+      whiteSpace: "nowrap",
     },
-    infoValue: {
+    memoValue: {
       flex: 1,
-      textAlign: "right",
+      minWidth: 0,
+      fontSize: "13px",
+      color: portalTheme.colors.textPrimary,
+      lineHeight: 1.5,
       whiteSpace: "pre-wrap",
       wordBreak: "break-word",
     },
@@ -297,8 +320,8 @@ function StudentDetailPanelComponent({
     },
     section: {
       marginTop: "24px",
-      breakInside: "avoid",
-      pageBreakInside: "avoid",
+      breakInside: isPrintMode ? "auto" : "avoid",
+      pageBreakInside: isPrintMode ? "auto" : "avoid",
     },
     sectionHeaderRow: {
       display: "flex",
@@ -325,8 +348,8 @@ function StudentDetailPanelComponent({
       boxShadow: portalTheme.shadows.soft,
       minWidth: 0,
       overflow: "hidden",
-      breakInside: "avoid",
-      pageBreakInside: "avoid",
+      breakInside: isPrintMode ? "auto" : "avoid",
+      pageBreakInside: isPrintMode ? "auto" : "avoid",
     },
     examTableHeader: {
       display: "flex",
@@ -461,8 +484,8 @@ function StudentDetailPanelComponent({
       padding: "16px",
       border: `1px solid ${portalTheme.colors.line}`,
       boxShadow: portalTheme.shadows.soft,
-      breakInside: "avoid",
-      pageBreakInside: "avoid",
+      breakInside: isPrintMode ? "auto" : "avoid",
+      pageBreakInside: isPrintMode ? "auto" : "avoid",
     },
     chartPanelTitle: {
       margin: "0 0 4px 0",
@@ -496,8 +519,8 @@ function StudentDetailPanelComponent({
       border: `1px solid ${portalTheme.colors.line}`,
       boxShadow: portalTheme.shadows.soft,
       minWidth: 0,
-      breakInside: "avoid",
-      pageBreakInside: "avoid",
+      breakInside: isPrintMode ? "auto" : "avoid",
+      pageBreakInside: isPrintMode ? "auto" : "avoid",
     },
     chartWrap: {
       width: "100%",
@@ -512,8 +535,8 @@ function StudentDetailPanelComponent({
       boxShadow: portalTheme.shadows.card,
       minWidth: 0,
       overflow: "hidden",
-      breakInside: "avoid",
-      pageBreakInside: "avoid",
+      breakInside: isPrintMode ? "auto" : "avoid",
+      pageBreakInside: isPrintMode ? "auto" : "avoid",
     },
     recordTableCardInner: {
       padding: "14px 16px 16px 16px",
@@ -635,8 +658,23 @@ function StudentDetailPanelComponent({
       gap: "8px",
       marginTop: "16px",
       flexWrap: "wrap",
-      breakInside: "avoid",
-      pageBreakInside: "avoid",
+      breakInside: isPrintMode ? "auto" : "avoid",
+      pageBreakInside: isPrintMode ? "auto" : "avoid",
+    },
+    headerActionsWrap: {
+      display: "flex",
+      justifyContent: "flex-end",
+      gap: "8px",
+      flexWrap: "wrap",
+      marginBottom: 0,
+      position: "sticky",
+      top: 0,
+      zIndex: 8,
+      padding: "2px 0 0",
+      alignSelf: "start",
+      background: isPrintMode
+        ? "#ffffff"
+        : "linear-gradient(180deg, rgba(250,251,253,0.98) 0%, rgba(250,251,253,0.94) 78%, rgba(250,251,253,0) 100%)",
     },
     editButton: {
       flex: 1,
@@ -689,13 +727,132 @@ function StudentDetailPanelComponent({
 
   return (
     <div style={styles.detailCard}>
-      <p style={styles.selectedBadge}>{badgeLabel}</p>
-      <h2 style={styles.detailName}>{s(student.name)}</h2>
-      <p style={styles.detailSub}>
+      {headerActions ? <div style={styles.headerActionsWrap}>{headerActions}</div> : null}
+      <div style={styles.detailTopShell}>
+        <div style={styles.detailTopMain}>
+          <div style={styles.detailHeaderRow}>
+            <h2 style={styles.detailName}>{s(student.name)}</h2>
+          </div>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "8px 10px",
+          marginBottom: "10px",
+          alignItems: "center",
+        }}
+      >
+        {[
+          getBranchLabel(s(student.branch_id)) || "-",
+          s(student.school_name) || "학교 정보 없음",
+          s(student.grade) ? `${s(student.grade)}학년` : "학년 정보 없음",
+          s(student.gender) || "-",
+          s(student.birth_date) || "-",
+          s(student.student_id) || "-",
+        ].map((value, index) => (
+          <span
+            key={`summary-${value}-${index}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              minHeight: "32px",
+              padding: "6px 10px",
+              borderRadius: portalTheme.radius.pill,
+              background: portalTheme.colors.surfacePanel,
+              border: `1px solid ${portalTheme.colors.line}`,
+              color: portalTheme.colors.textPrimary,
+              fontSize: "13px",
+              fontWeight: 700,
+              lineHeight: 1.3,
+            }}
+          >
+            {value}
+          </span>
+        ))}
+      </div>
+      <div
+        style={{
+          borderBottom: `1px solid ${portalTheme.colors.line}`,
+          padding: "0 0 14px 0",
+          marginBottom: "18px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            gap: "10px",
+            alignItems: "flex-start",
+            padding: "10px 12px",
+            borderRadius: portalTheme.radius.md,
+            background: portalTheme.colors.surfacePanel,
+            border: `1px solid ${portalTheme.colors.line}`,
+          }}
+        >
+          <span
+            style={{
+              flex: "0 0 auto",
+              fontSize: "13px",
+              fontWeight: 800,
+              color: portalTheme.colors.textMuted,
+              whiteSpace: "nowrap",
+              display: "none",
+            }}
+          >
+            메모
+          </span>
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: "13px",
+              color: portalTheme.colors.textPrimary,
+              lineHeight: 1.5,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {`메모  ${s(student.memo) || "-"}`}
+          </span>
+        </div>
+      </div>
+        </div>
+      </div>
+      <div style={{ ...styles.detailMetaRow, display: "none" }}>
+        <span style={styles.detailMetaChip}>{getBranchLabel(s(student.branch_id)) || "-"}</span>
+        <span style={styles.detailMetaChip}>{s(student.school_name) || "학교 정보 없음"}</span>
+        <span style={styles.detailMetaChip}>{s(student.grade) ? `${s(student.grade)}학년` : "학년 정보 없음"}</span>
+        <span style={styles.detailMetaChip}>{s(student.gender) || "-"}</span>
+        <span style={styles.detailMetaChip}>{s(student.birth_date) || "-"}</span>
+        <span style={styles.detailMetaChip}>{s(student.student_id) || "-"}</span>
+      </div>
+      <div style={{ ...styles.infoSection, display: "none" }}>
+        <div style={styles.memoRow}>
+          <span style={styles.memoLabel}>메모</span>
+          <span style={styles.memoValue}>{s(student.memo) || "-"}</span>
+        </div>
+      </div>
+      <div style={{ display: "none" }}>
+      <p style={{ display: "none" }}>
         {s(student.school_name) || "학교 정보 없음"} · {s(student.grade) ? `${s(student.grade)}학년` : "학년 정보 없음"} · {getBranchLabel(s(student.branch_id))}
       </p>
 
+      <div style={styles.detailMetaRow}>
+        <span style={styles.detailMetaChip}>{getBranchLabel(s(student.branch_id)) || "-"}</span>
+        <span style={styles.detailMetaChip}>{s(student.school_name) || "학교 정보 없음"}</span>
+        <span style={styles.detailMetaChip}>{s(student.grade) ? `${s(student.grade)}학년` : "학년 정보 없음"}</span>
+        <span style={styles.detailMetaChip}>{s(student.gender) || "-"}</span>
+        <span style={styles.detailMetaChip}>{s(student.birth_date) || "-"}</span>
+        <span style={styles.detailMetaChip}>{s(student.student_id) || "-"}</span>
+      </div>
+
       <div style={styles.infoSection}>
+        <div style={styles.memoRow}>
+          <span style={styles.memoLabel}>메모</span>
+          <span style={styles.memoValue}>{s(student.memo) || "-"}</span>
+        </div>
+      </div>
+
+      <div style={{ display: "none" }}>
         <div style={styles.infoRow}>
           <span style={styles.infoTitle}>학생 ID</span>
           <span style={styles.infoValue}>{s(student.student_id)}</span>
@@ -730,6 +887,7 @@ function StudentDetailPanelComponent({
         </div>
       </div>
 
+      </div>
       <div style={styles.section}>
         <div style={styles.sectionHeaderRow}>
           <div style={styles.sectionHeaderCopy}>

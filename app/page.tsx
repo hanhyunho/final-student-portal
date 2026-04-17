@@ -2925,14 +2925,14 @@ function HomeContent() {
       {isDetailPopupOpen && detailPopupStudent && (
         <div style={styles.modalOverlay}>
           <div style={styles.detailPopupBox}>
-            <div style={styles.modalHeader}>
+            <div style={{ display: "none" }}>
               <h3 style={styles.modalTitle}>{`${s(detailPopupStudent.name)} 학생 상세`}</h3>
               <button style={styles.closeButton} onClick={() => {
                 setIsDetailPopupOpen(false);
                 setDetailStudentId(null);
               }}>✕</button>
             </div>
-            <div style={styles.detailPopupActionBar}>
+            <div style={{ display: "none" }}>
               <div style={styles.detailPopupActionBarInner}>
                 {canManageStudents ? (
                   <button
@@ -2974,6 +2974,39 @@ function HomeContent() {
               canManage={canManageStudents}
               sticky={false}
               showActions={false}
+              headerActions={
+                <>
+                  {canManageStudents ? (
+                    <button
+                      style={styles.secondaryButton}
+                      onClick={() => {
+                        setIsDetailPopupOpen(false);
+                        setDetailStudentId(null);
+                        void openEditModal();
+                      }}
+                    >
+                      수정
+                    </button>
+                  ) : null}
+                  {canManageStudents ? (
+                    <button style={styles.warningButton} onClick={handleDelete}>
+                      삭제
+                    </button>
+                  ) : null}
+                  <button style={styles.navButton} onClick={handlePrintSelected}>
+                    학생 인쇄
+                  </button>
+                  <button
+                    style={styles.secondaryButton}
+                    onClick={() => {
+                      setIsDetailPopupOpen(false);
+                      setDetailStudentId(null);
+                    }}
+                  >
+                    닫기
+                  </button>
+                </>
+              }
               onEdit={() => {
                 setIsDetailPopupOpen(false);
                 setDetailStudentId(null);
@@ -3739,12 +3772,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     overflowY: "auto",
   },
   detailPopupActionBar: {
-    position: "sticky",
-    top: 0,
-    zIndex: 6,
-    marginBottom: "18px",
-    paddingBottom: "12px",
-    background: "linear-gradient(180deg, rgba(250,251,253,0.98) 0%, rgba(250,251,253,0.92) 72%, rgba(250,251,253,0) 100%)",
+    marginBottom: "14px",
   },
   detailPopupActionBarInner: {
     display: "flex",
@@ -3752,9 +3780,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "10px",
     flexWrap: "wrap",
     alignItems: "center",
-    padding: "12px 0 10px",
+    padding: "0 0 10px",
     borderBottom: `1px solid ${portalTheme.colors.line}`,
-    backdropFilter: "blur(10px)",
   },
   selectedBadge: {
     display: "inline-block",
